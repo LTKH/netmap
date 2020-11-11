@@ -1,0 +1,11 @@
+[[net_response]]
+protocol = "tcp"
+address = "localhost:80"
+
+[[net_response]]
+protocol = "tcp"
+address = "localhost:81"
+
+[[net_response]]
+protocol = "tcp"
+address = "localhost:8080"

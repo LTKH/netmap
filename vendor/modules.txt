@@ -1,0 +1,14 @@
+# github.com/alecthomas/units v0.0.0-20190717042225-c3de453c63f4
+github.com/alecthomas/units
+# github.com/influxdata/telegraf v1.16.1
+## explicit
+github.com/influxdata/telegraf/internal
+# github.com/naoina/go-stringutil v0.1.0
+github.com/naoina/go-stringutil
+# github.com/naoina/toml v0.1.1
+## explicit
+github.com/naoina/toml
+github.com/naoina/toml/ast
+# gopkg.in/natefinch/lumberjack.v2 v2.0.0
+## explicit
+gopkg.in/natefinch/lumberjack.v2
