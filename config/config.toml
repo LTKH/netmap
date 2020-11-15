@@ -1,6 +1,6 @@
 [[net_response]]
 protocol = "tcp"
-address = "localhost:80"
+address = "localhost:8080"
 
 [[net_response]]
 protocol = "tcp"
@@ -8,4 +8,12 @@ address = "localhost:81"
 
 [[net_response]]
 protocol = "tcp"
-address = "localhost:8080"
+address = "google.com:444"
+
+[[net_response]]
+protocol = "tcp"
+address = "google1234:444"
+
+[[net_response]]
+protocol = "tcp"
+address = "localhost1:123"

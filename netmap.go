@@ -8,25 +8,14 @@ import (
     "syscall"
     "runtime"
     "flag"
-    "sync"
     "net"
-    "net/textproto"
-    "bufio"
-    "regexp"
     "fmt"
-    "strings"
+	"strings"
+	"os/exec"
+	"sync"
     "github.com/naoina/toml"
-    "gopkg.in/natefinch/lumberjack.v2"
-)
-
-type ResultType uint64
-
-const (
-    Success          ResultType = 0
-    Timeout                     = 1
-    ConnectionFailed            = 2
-    ReadFailed                  = 3
-    StringMismatch              = 4
+	"gopkg.in/natefinch/lumberjack.v2"
+	//"github.com/lixiangzhong/traceroute"
 )
 
 type Config struct {
@@ -41,142 +30,31 @@ type NetResponse struct {
     Address     string
     Timeout     time.Duration
     ReadTimeout time.Duration
-    Send        string
-    Expect      string
     Protocol    string
 }
 
 // TCPGather will execute if there are TCP tests defined in the configuration.
 // It will return a map[string]interface{} for fields and a map[string]string for tags
-func (n *NetResponse) TCPGather() (tags map[string]string, fields map[string]interface{}) {
-    // Prepare returns
-    tags = make(map[string]string)
-    fields = make(map[string]interface{})
+func (n *NetResponse) TCPGather() (int, float64) {
     // Start Timer
     start := time.Now()
     // Connecting
-    conn, err := net.DialTimeout("tcp", n.Address, n.Timeout)
+	conn, err := net.DialTimeout("tcp", n.Address, n.Timeout)
     // Stop timer
     responseTime := time.Since(start).Seconds()
     // Handle error
-    if err != nil {
-        if e, ok := err.(net.Error); ok && e.Timeout() {
-            setResult(Timeout, fields, tags, n.Expect)
-        } else {
-            setResult(ConnectionFailed, fields, tags, n.Expect)
-        }
-        return tags, fields
-    }
-    defer conn.Close()
-    // Send string if needed
-    if n.Send != "" {
-        msg := []byte(n.Send)
-        conn.Write(msg)
-        // Stop timer
-        responseTime = time.Since(start).Seconds()
-    }
-    // Read string if needed
-    if n.Expect != "" {
-        // Set read timeout
-        conn.SetReadDeadline(time.Now().Add(n.ReadTimeout))
-        // Prepare reader
-        reader := bufio.NewReader(conn)
-        tp := textproto.NewReader(reader)
-        // Read
-        data, err := tp.ReadLine()
-        // Stop timer
-        responseTime = time.Since(start).Seconds()
-        // Handle error
-        if err != nil {
-            setResult(ReadFailed, fields, tags, n.Expect)
-        } else {
-            // Looking for string in answer
-            RegEx := regexp.MustCompile(`.*` + n.Expect + `.*`)
-            find := RegEx.FindString(string(data))
-            if find != "" {
-                setResult(Success, fields, tags, n.Expect)
-            } else {
-                setResult(StringMismatch, fields, tags, n.Expect)
-            }
-        }
-    } else {
-        setResult(Success, fields, tags, n.Expect)
-    }
-    fields["response_time"] = responseTime
-    return tags, fields
-}
+	if err != nil {
+		log.Printf("[error] %v", err)
 
-// UDPGather will execute if there are UDP tests defined in the configuration.
-// It will return a map[string]interface{} for fields and a map[string]string for tags
-func (n *NetResponse) UDPGather() (tags map[string]string, fields map[string]interface{}) {
-    // Prepare returns
-    tags = make(map[string]string)
-    fields = make(map[string]interface{})
-    // Start Timer
-    start := time.Now()
-    // Resolving
-    udpAddr, err := net.ResolveUDPAddr("udp", n.Address)
-    // Handle error
-    if err != nil {
-        setResult(ConnectionFailed, fields, tags, n.Expect)
-        return tags, fields
-    }
-    // Connecting
-    conn, err := net.DialUDP("udp", nil, udpAddr)
-    // Handle error
-    if err != nil {
-        setResult(ConnectionFailed, fields, tags, n.Expect)
-        return tags, fields
-    }
-    defer conn.Close()
-    // Send string
-    msg := []byte(n.Send)
-    conn.Write(msg)
-    // Read string
-    // Set read timeout
-    conn.SetReadDeadline(time.Now().Add(n.ReadTimeout))
-    // Read
-    buf := make([]byte, 1024)
-    _, _, err = conn.ReadFromUDP(buf)
-    // Stop timer
-    responseTime := time.Since(start).Seconds()
-    // Handle error
-    if err != nil {
-        setResult(ReadFailed, fields, tags, n.Expect)
-        return tags, fields
-    }
-
-    // Looking for string in answer
-    RegEx := regexp.MustCompile(`.*` + n.Expect + `.*`)
-    find := RegEx.FindString(string(buf))
-    if find != "" {
-        setResult(Success, fields, tags, n.Expect)
-    } else {
-        setResult(StringMismatch, fields, tags, n.Expect)
-    }
-
-    fields["response_time"] = responseTime
-
-    return tags, fields
-}
-
-func setResult(result ResultType, fields map[string]interface{}, tags map[string]string, expect string) {
-    var tag string
-    switch result {
-    case Success:
-        tag = "success"
-    case Timeout:
-        tag = "timeout"
-    case ConnectionFailed:
-        tag = "connection_failed"
-    case ReadFailed:
-        tag = "read_failed"
-    case StringMismatch:
-        tag = "string_mismatch"
-    }
-
-    tags["result"] = tag
-    fields["result_code"] = uint64(result)
+		if e, ok := err.(net.Error); ok && e.Timeout() {
+			return 1, responseTime
+		}
+		return 2, responseTime
+	}
+	
+	defer conn.Close()
+    
+    return 0, responseTime
 }
 
 func addFields(measurement string, fields map[string]interface{}, tags map[string]string) string {
@@ -195,6 +73,24 @@ func addFields(measurement string, fields map[string]interface{}, tags map[strin
     return fmt.Sprintf("%s %s", strings.Join(a_tags, ","), strings.Join(a_fields, ","))
 }
 
+func runCommand(cmd string) error {
+	fmt.Printf("[info] running %s\n", cmd)
+	var c *exec.Cmd
+	if runtime.GOOS == "windows" {
+		c = exec.Command("cmd", "/C", cmd)
+	} else {
+		c = exec.Command("/bin/sh", "-c", cmd)
+	}
+
+	output, err := c.CombinedOutput()
+	if err != nil {
+		fmt.Printf("[error] %q\n", string(output))
+		return err
+	}
+	fmt.Printf("[info] %q\n", string(output))
+	return nil
+}
+
 func main() {
 
     // Limits the number of operating system threads
@@ -202,7 +98,8 @@ func main() {
 
     // Command-line flag parsing
     cfFile          := flag.String("config", "", "config file")
-    lgFile          := flag.String("logfile", "", "log file")
+	lgFile          := flag.String("logfile", "", "log file")
+	interval        := flag.Int("interval", 30, "interval")
     log_max_size    := flag.Int("log_max_size", 1, "log max size") 
     log_max_backups := flag.Int("log_max_backups", 3, "log max backups")
     log_max_age     := flag.Int("log_max_age", 10, "log max age")
@@ -217,13 +114,20 @@ func main() {
         MaxAge:     *log_max_age,     // days
         Compress:   *log_compress,    // using gzip
     })
+	
+	//program completion signal processing
+	c := make(chan os.Signal, 2)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<- c
+		log.Print("[info] netmap stopped")
+		os.Exit(0)
+	}()
 
-    c := make(chan os.Signal, 1)
-    signal.Notify(c, syscall.SIGHUP)
+	log.Print("[info] netmap started -_-")
 
     // Daemon mode
     for {
-        <-c
 
         // Loading configuration file
         f, err := os.Open(*cfFile)
@@ -243,6 +147,14 @@ func main() {
             wg.Add(1)
             go func(n NetResponse) {
                 defer wg.Done()
+                
+                // Set default values
+                if n.Timeout == 0 {
+                    n.Timeout = 1 * time.Second
+                }
+                if n.ReadTimeout == 0 {
+                    n.ReadTimeout = 1 * time.Second
+                }
 
                 // Prepare host and port
                 host, port, err := net.SplitHostPort(n.Address)
@@ -252,31 +164,48 @@ func main() {
                 }
                 if host == "" {
                     n.Address = "localhost:" + port
-                }
-                if port == "" {
-                    log.Print("[error] bad port")
-                    return
-                }
+				}
+				if port == "" {
+					log.Print("[error] bad port")
+					return
+				}
 
                 // Prepare data
                 tags := map[string]string{"server": host, "port": port}
-                var fields map[string]interface{}
-                var returnTags map[string]string
+                fields := map[string]interface{}{}
 
                 // Gather data
                 if n.Protocol == "tcp" {
-                    returnTags, fields = n.TCPGather()
-                    tags["protocol"] = "tcp"
-                } else if n.Protocol == "udp" {
-                    returnTags, fields = n.UDPGather()
-                    tags["protocol"] = "udp"
-                } else {
-                    log.Print("[error] bad protocol")
-                }
 
-                // Merge the tags
-                for k, v := range returnTags {
-                    tags[k] = v
+					result, response := n.TCPGather()
+					
+					tags["protocol"] = n.Protocol
+					fields["result_code"] = result
+					fields["response_time"] = response
+					
+					/*
+					t := traceroute.New("64.233.162.100")
+					//t.MaxTTL=30
+					//t.Timeout=3 * time.Second
+					t.LocalAddr="0.0.0.0"
+					result, err := t.Do()
+					if err != nil {
+						fmt.Println(err)
+						return
+					}
+					for _, v := range result {
+						fmt.Println(v)
+					}
+					*/
+
+					//runCommand(fmt.Sprintf("traceroute -p %d %s", port, host))
+
+                } else if n.Protocol == "udp" {
+                    //returnTags, fields = n.UDPGather()
+                    //tags["protocol"] = "udp"
+                } else {
+					log.Print("[error] bad protocol")
+					return
                 }
 
                 // Add metrics
@@ -285,9 +214,11 @@ func main() {
             }(n)
         }
 
-        wg.Wait()
+		wg.Wait()
+		
+		time.Sleep(time.Duration(*interval) * time.Second)
 
-    }
+	}
 
 }
 

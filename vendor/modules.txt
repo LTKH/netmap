@@ -1,14 +1,25 @@
-# github.com/alecthomas/units v0.0.0-20190717042225-c3de453c63f4
-github.com/alecthomas/units
-# github.com/influxdata/telegraf v1.16.1
+# github.com/lixiangzhong/traceroute v0.0.0-20160702092852-abf9d5e3f1ff
 ## explicit
-github.com/influxdata/telegraf/internal
+github.com/lixiangzhong/traceroute
 # github.com/naoina/go-stringutil v0.1.0
+## explicit
 github.com/naoina/go-stringutil
 # github.com/naoina/toml v0.1.1
 ## explicit
 github.com/naoina/toml
 github.com/naoina/toml/ast
+# golang.org/x/net v0.0.0-20201110031124-69a78807bb2b
+## explicit
+golang.org/x/net/bpf
+golang.org/x/net/icmp
+golang.org/x/net/internal/iana
+golang.org/x/net/internal/socket
+golang.org/x/net/ipv4
+golang.org/x/net/ipv6
+# golang.org/x/sys v0.0.0-20200930185726-fdedc70b468f
+golang.org/x/sys/internal/unsafeheader
+golang.org/x/sys/unix
+golang.org/x/sys/windows
 # gopkg.in/natefinch/lumberjack.v2 v2.0.0
 ## explicit
 gopkg.in/natefinch/lumberjack.v2
