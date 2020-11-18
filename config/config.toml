@@ -1,19 +1,2 @@
-[[net_response]]
-protocol = "tcp"
-address = "localhost:8080"
-
-[[net_response]]
-protocol = "tcp"
-address = "localhost:81"
-
-[[net_response]]
-protocol = "tcp"
-address = "google.com:444"
-
-[[net_response]]
-protocol = "tcp"
-address = "google1234:444"
-
-[[net_response]]
-protocol = "tcp"
-address = "localhost1:123"
+[netmap]
+urls = ["http://localhost:8080/test2.json"]

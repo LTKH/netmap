@@ -13,24 +13,23 @@ import (
 	"strings"
 	"os/exec"
 	"sync"
+	"encoding/json"
     "github.com/naoina/toml"
 	"gopkg.in/natefinch/lumberjack.v2"
-	//"github.com/lixiangzhong/traceroute"
+	"github.com/ltkh/telegraf-netmap/internal/http"
 )
 
 type Config struct {
-    Server struct {
-        URLs         []string         `toml:"urls"`
-    }
-    NetResponse      []NetResponse    `toml:"net_response"`
+	NetMap      http.HTTP        `toml:"netmap"`
 }
 
 // NetResponse struct
 type NetResponse struct {
-    Address     string
-    Timeout     time.Duration
-    ReadTimeout time.Duration
-    Protocol    string
+    Address     string           `toml:"adress"`
+    Timeout     time.Duration    `toml:"timeout"`
+    ReadTimeout time.Duration    `toml:"read_timeout"`
+	Protocol    string           `toml:"protocol"`
+	TimeoutCmd  string           `toml:"timeout_cmd"`
 }
 
 // TCPGather will execute if there are TCP tests defined in the configuration.
@@ -44,7 +43,7 @@ func (n *NetResponse) TCPGather() (int, float64) {
     responseTime := time.Since(start).Seconds()
     // Handle error
 	if err != nil {
-		log.Printf("[error] %v", err)
+		log.Printf("[error] %v - %v", n.Address, err)
 
 		if e, ok := err.(net.Error); ok && e.Timeout() {
 			return 1, responseTime
@@ -106,14 +105,14 @@ func main() {
     log_compress    := flag.Bool("log_compress", true, "log compress")
     flag.Parse()
 
-    // Logging settings
+	// Logging settings
     log.SetOutput(&lumberjack.Logger{
         Filename:   *lgFile,
         MaxSize:    *log_max_size,    // megabytes after which new file is created
         MaxBackups: *log_max_backups, // number of backups
         MaxAge:     *log_max_age,     // days
         Compress:   *log_compress,    // using gzip
-    })
+	})
 	
 	//program completion signal processing
 	c := make(chan os.Signal, 2)
@@ -124,36 +123,48 @@ func main() {
 		os.Exit(0)
 	}()
 
+	// Loading configuration file
+	f, err := os.Open(*cfFile)
+	if err != nil {
+		log.Fatalf("[error] %v", err)
+	}
+	defer f.Close()
+	
+	var cfg Config
+	if err := toml.NewDecoder(f).Decode(&cfg); err != nil {
+		log.Fatalf("[error] %v", err)
+	}
+
 	log.Print("[info] netmap started -_-")
 
     // Daemon mode
     for {
 
-        // Loading configuration file
-        f, err := os.Open(*cfFile)
-        if err != nil {
-            log.Fatalf("[error] %v", err)
-        }
-        defer f.Close()
+		var wg sync.WaitGroup
+		var nr []NetResponse
+
+		h := http.New(cfg.NetMap)
+		body, err := h.GatherURL()
+		if err != nil {
+			log.Printf("[error] %v", err)
+		} else {
+			if err := json.Unmarshal(body, &nr); err != nil {
+				log.Printf("[error] error reading json from response body: %s", err)
+			}
+		}
+		
+		for _, n := range nr {
+			wg.Add(1)
         
-        var cfg Config
-        if err := toml.NewDecoder(f).Decode(&cfg); err != nil {
-            log.Fatalf("[error] %v", err)
-        }
-
-        var wg sync.WaitGroup
-
-        for _, n := range cfg.NetResponse {
-            wg.Add(1)
             go func(n NetResponse) {
                 defer wg.Done()
                 
                 // Set default values
                 if n.Timeout == 0 {
-                    n.Timeout = 1 * time.Second
+                    n.Timeout = 5 * time.Second
                 }
                 if n.ReadTimeout == 0 {
-                    n.ReadTimeout = 1 * time.Second
+                    n.ReadTimeout = 5 * time.Second
                 }
 
                 // Prepare host and port
@@ -183,20 +194,7 @@ func main() {
 					fields["result_code"] = result
 					fields["response_time"] = response
 					
-					/*
-					t := traceroute.New("64.233.162.100")
-					//t.MaxTTL=30
-					//t.Timeout=3 * time.Second
-					t.LocalAddr="0.0.0.0"
-					result, err := t.Do()
-					if err != nil {
-						fmt.Println(err)
-						return
-					}
-					for _, v := range result {
-						fmt.Println(v)
-					}
-					*/
+					//
 
 					//runCommand(fmt.Sprintf("traceroute -p %d %s", port, host))
 
@@ -211,8 +209,8 @@ func main() {
                 // Add metrics
                 fmt.Printf("%s\n", addFields("netmap", fields, tags))
 
-            }(n)
-        }
+			}(n)
+		}
 
 		wg.Wait()
 		
