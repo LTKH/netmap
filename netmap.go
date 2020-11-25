@@ -131,8 +131,18 @@ func main() {
 
 	log.Print("[info] netmap started -_-")
 	
-    run := true
+	run := true
+	
+	// Program completion signal processing
+    e := make(chan os.Signal, 2)
+    signal.Notify(e, os.Interrupt, syscall.SIGTERM)
+    go func() {
+        <- e
+        log.Print("[info] confd stopped")
+        os.Exit(0)
+    }()
 
+    // Program run signal processing
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGHUP)
 	go func() {
