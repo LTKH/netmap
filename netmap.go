@@ -133,21 +133,25 @@ func main() {
 	
 	run := true
 	
-	// Program completion signal processing
-    e := make(chan os.Signal, 2)
-    signal.Notify(e, os.Interrupt, syscall.SIGTERM)
-    go func() {
-        <- e
-        log.Print("[info] netmap stopped")
-        os.Exit(0)
-    }()
-
-    // Program run signal processing
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, syscall.SIGHUP)
-	go func() {
-        <-c
-        run = true
+	// Program signal processing
+    c := make(chan os.Signal, 1)
+    signal.Notify(c, os.Interrupt, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
+    go func(){
+		for {
+			s := <-c
+			switch s {
+				case syscall.SIGHUP:
+					run = true
+				case syscall.SIGINT:
+					log.Print("[info] netmap stopped")
+                    os.Exit(0)
+				case syscall.SIGTERM:
+					log.Print("[info] netmap stopped")
+                    os.Exit(0)
+				default:
+					log.Print("[info] unknown signal received")
+			}
+		}
     }()
 
     // Daemon mode
