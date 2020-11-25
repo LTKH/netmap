@@ -1,2 +1,2 @@
-[[connections]]
+[[connection]]
 urls = ["http://localhost:8080/test2.json"]

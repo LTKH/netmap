@@ -20,7 +20,7 @@ import (
 )
 
 type Config struct {
-    Connections []http.HTTP      `toml:"connections"`
+    Connection  []http.HTTP      `toml:"connection"`
 }
 
 // NetResponse struct
@@ -145,7 +145,7 @@ func main() {
 
 		var wg sync.WaitGroup
 
-		for _, conn := range cfg.Connections {
+		for _, conn := range cfg.Connection {
 
 			var nr []NetResponse
 
@@ -219,7 +219,7 @@ func main() {
 
 				}(n)
 			}
-			
+
 		}
 
 		wg.Wait()
