@@ -20,7 +20,7 @@ import (
 )
 
 type Config struct {
-    NetMap      http.HTTP        `toml:"netmap"`
+    Connections []http.HTTP      `toml:"connections"`
 }
 
 // NetResponse struct
@@ -143,81 +143,86 @@ func main() {
     // Daemon mode
     for {
 
-        var wg sync.WaitGroup
-        var nr []NetResponse
+		var wg sync.WaitGroup
 
-        h := http.New(cfg.NetMap)
-        body, err := h.GatherURL()
-        if err != nil {
-            log.Printf("[error] %v", err)
-        } else {
-            if err := json.Unmarshal(body, &nr); err != nil {
-                log.Printf("[error] error reading json from response body: %s", err)
-            }
-        }
-        
-        for _, n := range nr {
-            wg.Add(1)
-        
-            go func(n NetResponse) {
-                defer wg.Done()
-                
-                // Set default values
-                if n.Timeout == 0 {
-                    n.Timeout = 5 * time.Second
-                }
-                if n.ReadTimeout == 0 {
-                    n.ReadTimeout = 5 * time.Second
-                }
+		for _, conn := range cfg.Connections {
 
-                // Prepare host and port
-                host, port, err := net.SplitHostPort(n.Address)
-                if err != nil {
-                    log.Printf("[error] %v", err)
-                    return 
-                }
-                if host == "" {
-                    n.Address = "localhost:" + port
-                }
-                if port == "" {
-                    log.Print("[error] bad port")
-                    return
-                }
+			var nr []NetResponse
 
-                // Prepare data
-                tags := map[string]string{"server": host, "port": port}
-                fields := map[string]interface{}{}
+			h := http.New(conn)
+			body, err := h.GatherURL()
+			if err != nil {
+				log.Printf("[error] %v", err)
+			} else {
+				if err := json.Unmarshal(body, &nr); err != nil {
+					log.Printf("[error] error reading json from response body: %s", err)
+				}
+			}
+			
+			for _, n := range nr {
+				wg.Add(1)
+			
+				go func(n NetResponse) {
+					defer wg.Done()
+					
+					// Set default values
+					if n.Timeout == 0 {
+						n.Timeout = 5 * time.Second
+					}
+					if n.ReadTimeout == 0 {
+						n.ReadTimeout = 5 * time.Second
+					}
 
-                // Gather data
-                if n.Protocol == "tcp" {
+					// Prepare host and port
+					host, port, err := net.SplitHostPort(n.Address)
+					if err != nil {
+						log.Printf("[error] %v", err)
+						return 
+					}
+					if host == "" {
+						n.Address = "localhost:" + port
+					}
+					if port == "" {
+						log.Print("[error] bad port")
+						return
+					}
 
-                    result, response := n.TCPGather()
-                    
-                    tags["protocol"] = n.Protocol
-                    fields["result_code"] = result
-                    fields["response_time"] = response
-                    
-                    //
+					// Prepare data
+					tags := map[string]string{"server": host, "port": port}
+					fields := map[string]interface{}{}
 
-                    //runCommand(fmt.Sprintf("traceroute -p %d %s", port, host))
+					// Gather data
+					if n.Protocol == "tcp" {
 
-                } else if n.Protocol == "udp" {
-                    //returnTags, fields = n.UDPGather()
-                    //tags["protocol"] = "udp"
-                } else {
-                    log.Print("[error] bad protocol")
-                    return
-                }
+						result, response := n.TCPGather()
+						
+						tags["protocol"] = n.Protocol
+						fields["result_code"] = result
+						fields["response_time"] = response
+						
+						//
 
-                // Add metrics
-                if *plugin == "telegraf" {
-                    fmt.Printf("%s\n", addFields("netmap", fields, tags))
-                }
+						//runCommand(fmt.Sprintf("traceroute -p %d %s", port, host))
 
-            }(n)
-        }
+					} else if n.Protocol == "udp" {
+						//returnTags, fields = n.UDPGather()
+						//tags["protocol"] = "udp"
+					} else {
+						log.Print("[error] bad protocol")
+						return
+					}
 
-        wg.Wait()
+					// Add metrics
+					if *plugin == "telegraf" {
+						fmt.Printf("%s\n", addFields("netmap", fields, tags))
+					}
+
+				}(n)
+			}
+			
+		}
+
+		wg.Wait()
         
         time.Sleep(time.Duration(*interval) * time.Second)
 
