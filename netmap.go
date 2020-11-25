@@ -116,15 +116,6 @@ func main() {
             Compress:   *log_compress,    // using gzip
         })
     }
-    
-    //program completion signal processing
-    c := make(chan os.Signal, 2)
-    signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-    go func() {
-        <- c
-        log.Print("[info] netmap stopped")
-        os.Exit(0)
-    }()
 
     // Loading configuration file
     f, err := os.Open(*cfFile)
@@ -138,10 +129,23 @@ func main() {
         log.Fatalf("[error] %v", err)
     }
 
-    log.Print("[info] netmap started -_-")
+	log.Print("[info] netmap started -_-")
+	
+    run := true
+
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGHUP)
+	go func() {
+        <-c
+        run = true
+    }()
 
     // Daemon mode
-    for {
+    for (run) {
+
+		if *plugin == "telegraf" {
+			run = false
+		}
 
 		var wg sync.WaitGroup
 
@@ -224,7 +228,7 @@ func main() {
 
 		wg.Wait()
         
-        time.Sleep(time.Duration(*interval) * time.Second)
+		time.Sleep(time.Duration(*interval) * time.Second)
 
     }
 
