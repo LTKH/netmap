@@ -138,7 +138,7 @@ func main() {
     signal.Notify(e, os.Interrupt, syscall.SIGTERM)
     go func() {
         <- e
-        log.Print("[info] confd stopped")
+        log.Print("[info] netmap stopped")
         os.Exit(0)
     }()
 
