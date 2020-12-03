@@ -1,2 +1,3 @@
 [[connection]]
-urls = ["http://localhost:8080/test2.json"]
+urls = ["http://localhost:8080/test3.json"]
+traceroute_cmd = "traceroute -p {{ .port }} {{ .server }}"

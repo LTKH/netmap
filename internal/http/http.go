@@ -10,19 +10,19 @@ import (
 )
 
 type HTTP struct {
-	URLs                []string           `toml:"urls"`
-	Timeout             time.Duration      `toml:"timeout"`
+	URLs                []string           
+	Timeout             time.Duration      
 
-	ContentEncoding     string             `toml:"content_encoding"`
+	ContentEncoding     string             
 
-	Headers             map[string]string  `toml:"headers"`
+	Headers             map[string]string  
 
 	// HTTP Basic Auth Credentials
-	Username            string             `toml:"username"`
-	Password            string             `toml:"password"`
+	Username            string             
+	Password            string             
 
 	// Absolute path to file with Bearer token
-	BearerToken         string             `toml:"bearer_token"`
+	BearerToken         string             
 
 	client              *http.Client
 }
@@ -45,11 +45,11 @@ func New(h HTTP) HTTP {
 	return h
 }
 
-func (h *HTTP) Gather() ([]byte, error) {
+func (h *HTTP) Gather(method string, body []byte) ([]byte, error) {
 
 	for _, url := range h.URLs {
 
-		request, err := http.NewRequest("GET", url, nil)
+		request, err := http.NewRequest(method, url, strings.NewReader(string(body)))
 		if err != nil {
 			log.Printf("[error] %s - %v", url, err)
 			continue
@@ -89,7 +89,7 @@ func (h *HTTP) Gather() ([]byte, error) {
 		defer resp.Body.Close()
 
 		if resp.StatusCode != 200 {
-			log.Printf("[error] %s - received status code %d (%s), expected any value out of 200", url, resp.StatusCode, http.StatusText(resp.StatusCode))
+			log.Printf("[error] %s %s - received status code %d (%s)", method, url, resp.StatusCode, http.StatusText(resp.StatusCode))
 			continue
 		}
 
@@ -104,9 +104,9 @@ func (h *HTTP) Gather() ([]byte, error) {
 	return nil, fmt.Errorf("error failed to complete any request")
 }
 
-func (h *HTTP) GatherURL() ([]byte, error) {
+func (h *HTTP) GatherURL(method string, body []byte) ([]byte, error) {
 
-	body, err := h.Gather()
+	body, err := h.Gather(method, body)
 	if err != nil {
 		return body, err
 	}
