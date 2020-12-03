@@ -278,7 +278,7 @@ func main() {
 							if conn_chan[n.Address] == nil {
 								conn_chan[n.Address] = make(chan int, 2)
 							}
-							conn_chan[n.Address] <- 1
+							//conn_chan[n.Address] <- 1
 							go func(){
 								conn_chan[n.Address] <- 1
 								tmpl, err := newTemplate(n.Address, cn.TracerouteCmd, tags)
@@ -300,7 +300,7 @@ func main() {
 						}
 
 						if result == 0 {
-							<- conn_chan[n.Address]
+							//<- conn_chan[n.Address]
 							//close(conn_chan[n.Address])
 						}
 
