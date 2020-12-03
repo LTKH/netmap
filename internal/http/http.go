@@ -54,6 +54,14 @@ func (h *HTTP) Gather(method, data string) ([]byte, error) {
 			log.Printf("[error] %s - %v", url, err)
 			continue
 		}
+		
+		if method == "POST" {
+			request.Header.Set("Content-Type", "application/json")
+		}
+		
+		if h.ContentEncoding == "gzip" {
+			request.Header.Set("Content-Encoding", "gzip")
+		}
 
 		if h.BearerToken != "" {
 			token, err := ioutil.ReadFile(h.BearerToken)
@@ -64,11 +72,7 @@ func (h *HTTP) Gather(method, data string) ([]byte, error) {
 			bearer := "Bearer " + strings.Trim(string(token), "\n")
 			request.Header.Set("Authorization", bearer)
 		}
-
-		if h.ContentEncoding == "gzip" {
-			request.Header.Set("Content-Encoding", "gzip")
-		}
-
+		
 		for k, v := range h.Headers {
 			if strings.ToLower(k) == "host" {
 				request.Host = v

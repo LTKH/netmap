@@ -296,6 +296,7 @@ func main() {
 										if err != nil {
 											log.Printf("[error] %v", err)
 										} else {
+											log.Printf("[info] %v", string(jsn))
 											_, err = conn.GatherURL("POST", string(jsn))
 											if err != nil {
 												log.Printf("[error] %v", err)
