@@ -45,11 +45,11 @@ func New(h HTTP) HTTP {
 	return h
 }
 
-func (h *HTTP) Gather(method string, body []byte) ([]byte, error) {
+func (h *HTTP) Gather(method, data string) ([]byte, error) {
 
 	for _, url := range h.URLs {
 
-		request, err := http.NewRequest(method, url, strings.NewReader(string(body)))
+		request, err := http.NewRequest(method, url, strings.NewReader(data))
 		if err != nil {
 			log.Printf("[error] %s - %v", url, err)
 			continue
@@ -104,11 +104,11 @@ func (h *HTTP) Gather(method string, body []byte) ([]byte, error) {
 	return nil, fmt.Errorf("error failed to complete any request")
 }
 
-func (h *HTTP) GatherURL(method string, body []byte) ([]byte, error) {
+func (h *HTTP) GatherURL(method, data string) ([]byte, error) {
 
-	body, err := h.Gather(method, body)
+	body, err := h.Gather(method, data)
 	if err != nil {
-		return body, err
+		return nil, err
 	}
 
 	return body, nil

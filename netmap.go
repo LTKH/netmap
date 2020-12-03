@@ -112,11 +112,11 @@ func runCommand(scmd string, timeout time.Duration) ([]byte, error) {
 	}
 
 	// If there's no context error, we know the command completed (or errored).
-	fmt.Println("Output:", string(out))
 	if err != nil {
 		return nil, fmt.Errorf("non-zero exit code: %v '%s'", err, scmd)
 	}
 
+	log.Printf("[info] finished '%s'", scmd)
     return out, nil
 }
 
@@ -223,7 +223,7 @@ func main() {
 				Headers:     cn.Headers,
 			})
 
-			body, err := conn.GatherURL("GET", nil)
+			body, err := conn.GatherURL("GET", "")
 			if err != nil {
 				log.Printf("[error] %v", err)
 			} else {
@@ -278,7 +278,8 @@ func main() {
 							if conn_chan[n.Address] == nil {
 								conn_chan[n.Address] = make(chan int, 2)
 							}
-							//conn_chan[n.Address] <- 1
+							conn_chan[n.Address] <- 1
+
 							go func(){
 								conn_chan[n.Address] <- 1
 								tmpl, err := newTemplate(n.Address, cn.TracerouteCmd, tags)
@@ -289,18 +290,25 @@ func main() {
 									if err != nil {
 										log.Printf("[error] %v", err)
 									} else {
-										_, err = conn.GatherURL("POST", out)
+										arr := strings.Split(string(out), "\n")
+										jou := map[string]interface{}{"tags": tags, "output": arr}
+										jsn, err := json.Marshal(jou)
 										if err != nil {
 											log.Printf("[error] %v", err)
-										} 
+										} else {
+											_, err = conn.GatherURL("POST", string(jsn))
+											if err != nil {
+												log.Printf("[error] %v", err)
+											} 
+										}
 									}
 								}
-								<- conn_chan[n.Address]
+								_ = <- conn_chan[n.Address]
 							}()
 						}
 
-						if result == 0 {
-							//<- conn_chan[n.Address]
+						if result == 0 && len(conn_chan[n.Address]) == 1 {
+							_ = <- conn_chan[n.Address]
 							//close(conn_chan[n.Address])
 						}
 
