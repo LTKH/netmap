@@ -47,7 +47,7 @@ type NetResponse struct {
 type DataSend struct {
     Tags           map[string]string       `json:"tags"`
     Fields         state.State             `json:"fields"`
-    Output         []string                `json:"output,omitempty"`
+    Output         []string                `json:"output"`
 }
 
 // TCPGather will execute if there are TCP tests defined in the configuration.
@@ -265,7 +265,7 @@ func main() {
 
                         fields.ResultCode = result
                         fields.ResponseTime = response
-                        data := DataSend{ Tags: tags, Fields: fields }
+                        data := DataSend{ Tags: tags, Fields: fields, Output: make([]string, 0) }
 
                         if state {
                             jsn, err := json.Marshal(data)
@@ -277,6 +277,7 @@ func main() {
                                     log.Printf("[error] %v", err)
                                 }
                             }
+                            //log.Printf("[info] %v", string(jsn))
                         }
 
                         if (result == 1 || response > 4) && fields.Traceroute == 0 {
@@ -306,6 +307,8 @@ func main() {
                                 if err != nil {
                                     log.Printf("[error] %v", err)
                                 }
+
+                                //log.Printf("[info] %v", string(jsn))
                             }(data)
                         }
 
