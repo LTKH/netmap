@@ -12,39 +12,42 @@ import (
     "fmt"
     "strings"
     "os/exec"
-	"sync"
-	"context"
-	"bytes"
-	"encoding/json"
-	"text/template"
+    "sync"
+    "context"
+    "bytes"
+    "encoding/json"
+    "text/template"
     "github.com/naoina/toml"
     "gopkg.in/natefinch/lumberjack.v2"
-    "github.com/ltkh/telegraf-netmap/internal/http"
-)
-
-var (
-	conn_chan = make(map[string](chan int))
+    "github.com/ltkh/netmap/internal/http"
+    "github.com/ltkh/netmap/internal/state"
 )
 
 type Connection struct {
-	URLs           []string           `toml:"urls"`
-	Username       string             `toml:"username"`
-	Password       string             `toml:"password"`
-	BearerToken    string             `toml:"bearer_token"`
-	Headers        map[string]string  `toml:"headers"`
-	TracerouteCmd  string             `toml:"traceroute_cmd"`
+    URLs           []string                `toml:"urls"`
+    Username       string                  `toml:"username"`
+    Password       string                  `toml:"password"`
+    BearerToken    string                  `toml:"bearer_token"`
+    Headers        map[string]string       `toml:"headers"`
+    TracerouteCmd  string                  `toml:"traceroute_cmd"`
 }
 
 type Config struct {
-	Connection     []Connection
+    Connection     []Connection
 }
 
 // NetResponse struct
 type NetResponse struct {
-    Address        string             `json:"address"`
-    Timeout        time.Duration      `json:"timeout"`
-    ReadTimeout    time.Duration      `json:"read_timeout"`
-    Protocol       string             `json:"protocol"`
+    Address        string                  `json:"address"`
+    Timeout        time.Duration           `json:"timeout"`
+    ReadTimeout    time.Duration           `json:"read_timeout"`
+    Protocol       string                  `json:"protocol"`
+}
+
+type DataSend struct {
+    Tags           map[string]string       `json:"tags"`
+    Fields         state.State             `json:"fields"`
+    Output         []string                `json:"output,omitempty"`
 }
 
 // TCPGather will execute if there are TCP tests defined in the configuration.
@@ -71,69 +74,51 @@ func (n *NetResponse) TCPGather() (int, float64) {
     return 0, responseTime
 }
 
-func addFields(measurement string, fields map[string]interface{}, tags map[string]string) string {
-
-    var a_tags []string
-    a_tags = append(a_tags, measurement)
-    for k, v := range tags {
-        a_tags = append(a_tags, fmt.Sprintf("%s=%v", k, v))
-    }
-
-    var a_fields []string
-    for k, v := range fields {
-        a_fields = append(a_fields, fmt.Sprintf("%s=%v", k, v))
-    }
-
-    return fmt.Sprintf("%s %s", strings.Join(a_tags, ","), strings.Join(a_fields, ","))
-}
-
 func runCommand(scmd string, timeout time.Duration) ([]byte, error) {
-	log.Printf("[info] running '%s'", scmd)
-	// Create a new context and add a timeout to it
-	ctx, cancel := context.WithTimeout(context.Background(), timeout * time.Second)
-	defer cancel() // The cancel should be deferred so resources are cleaned up
+    log.Printf("[info] running '%s'", scmd)
+    // Create a new context and add a timeout to it
+    ctx, cancel := context.WithTimeout(context.Background(), timeout * time.Second)
+    defer cancel() // The cancel should be deferred so resources are cleaned up
 
-	// Create the command with our context
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
+    // Create the command with our context
+    var cmd *exec.Cmd
+    if runtime.GOOS == "windows" {
         cmd = exec.CommandContext(ctx, "cmd", "/C", scmd)
-	} else {
-		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", scmd)
-	}
+    } else {
+        cmd = exec.CommandContext(ctx, "/bin/sh", "-c", scmd)
+    }
 
-	// This time we can simply use Output() to get the result.
-	out, err := cmd.Output()
+    // This time we can simply use Output() to get the result.
+    out, err := cmd.Output()
 
-	// We want to check the context error to see if the timeout was executed.
-	// The error returned by cmd.Output() will be OS specific based on what
-	// happens when a process is killed.
-	if ctx.Err() == context.DeadlineExceeded {
-		return nil, fmt.Errorf("command timed out '%s'", scmd)
-	}
+    // Check the context error to see if the timeout was executed
+    if ctx.Err() == context.DeadlineExceeded {
+        return nil, fmt.Errorf("command timed out '%s'", scmd)
+    }
 
-	// If there's no context error, we know the command completed (or errored).
-	if err != nil {
-		return nil, fmt.Errorf("non-zero exit code: %v '%s'", err, scmd)
-	}
+    // If there's no context error, we know the command completed (or errored).
+    if err != nil {
+        return nil, fmt.Errorf("non-zero exit code: %v '%s'", err, scmd)
+    }
 
-	log.Printf("[info] finished '%s'", scmd)
+    log.Printf("[info] finished '%s'", scmd)
     return out, nil
 }
 
 func newTemplate(def string, tstr string, tags interface{})(bytes.Buffer, error){
 
-	var tpl bytes.Buffer
+    var tpl bytes.Buffer
 
     tmpl, err := template.New(def).Parse(tstr)
-	if err != nil {
-		return tpl, err
-	}
+    if err != nil {
+        return tpl, err
+    }
 
-	if err = tmpl.Execute(&tpl, &tags); err != nil {
-		return tpl, err
-	}
+    if err = tmpl.Execute(&tpl, &tags); err != nil {
+        return tpl, err
+    }
 
-	return tpl, nil
+    return tpl, nil
 }
 
 func main() {
@@ -175,163 +160,189 @@ func main() {
         log.Fatalf("[error] %v", err)
     }
 
-	log.Print("[info] netmap started -_-")
-	
-	run := true
-	
-	// Program signal processing
+    log.Print("[info] netmap started -_-")
+    
+    run := true
+    
+    // Program signal processing
     c := make(chan os.Signal, 1)
     signal.Notify(c, os.Interrupt, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
     go func(){
-		for {
-			s := <-c
-			switch s {
-				case syscall.SIGHUP:
-					run = true
-				case syscall.SIGINT:
-					log.Print("[info] netmap stopped")
+        for {
+            s := <-c
+            switch s {
+                case syscall.SIGHUP:
+                    run = true
+                case syscall.SIGINT:
+                    log.Print("[info] netmap stopped")
                     os.Exit(0)
-				case syscall.SIGTERM:
-					log.Print("[info] netmap stopped")
+                case syscall.SIGTERM:
+                    log.Print("[info] netmap stopped")
                     os.Exit(0)
-				default:
-					log.Print("[info] unknown signal received")
-			}
-		}
-	}()
-	
-	//var cs Conns
+                default:
+                    log.Print("[info] unknown signal received")
+            }
+        }
+    }()
+    
+    // Сache initialization
+    cache := state.NewCacheStates()
 
     // Daemon mode
     for (run) {
 
-		if *plugin == "telegraf" {
-			run = false
-		}
+        if *plugin == "telegraf" {
+            run = false
+        }
 
-		var wg sync.WaitGroup
+        var wg sync.WaitGroup
 
-		for _, cn := range cfg.Connection {
+        for _, cn := range cfg.Connection {
 
-			var nrs []NetResponse
+            var nrs []NetResponse
 
-			conn := http.New(http.HTTP{
-				URLs:        cn.URLs,
-				Username:    cn.Username,
-				Password:    cn.Password,
-				BearerToken: cn.BearerToken,
-				Headers:     cn.Headers,
-			})
+            conn := http.New(http.HTTP{
+                URLs:        cn.URLs,
+                Username:    cn.Username,
+                Password:    cn.Password,
+                BearerToken: cn.BearerToken,
+                Headers:     cn.Headers,
+            })
 
-			body, err := conn.GatherURL("GET", "")
-			if err != nil {
-				log.Printf("[error] %v", err)
-			} else {
-				if err := json.Unmarshal(body, &nrs); err != nil {
-					log.Printf("[error] error reading json from response body: %s", err)
-				}
-			}
-			
-			for _, nr := range nrs {
-				wg.Add(1)
-			
-				go func(n NetResponse) {
-					defer wg.Done()
-					
-					// Set default values
-					if n.Timeout == 0 {
-						n.Timeout = 5 * time.Second
-					}
-					if n.ReadTimeout == 0 {
-						n.ReadTimeout = 5 * time.Second
-					}
+            body, err := conn.GatherURL("GET", "")
+            if err != nil {
+                log.Printf("[error] %v", err)
+            } else {
+                if err := json.Unmarshal(body, &nrs); err != nil {
+                    log.Printf("[error] error reading json from response body: %s", err)
+                }
+            }
+            
+            for _, nr := range nrs {
+                wg.Add(1)
+            
+                go func(n NetResponse) {
+                    defer wg.Done()
+                    
+                    // Set default values
+                    if n.Timeout == 0 {
+                        n.Timeout = 5 * time.Second
+                    }
+                    if n.ReadTimeout == 0 {
+                        n.ReadTimeout = 5 * time.Second
+                    }
 
-					// Prepare host and port
-					host, port, err := net.SplitHostPort(n.Address)
-					if err != nil {
-						log.Printf("[error] %v", err)
-						return 
-					}
-					if host == "" {
-						n.Address = "localhost:" + port
-					}
-					if port == "" {
-						log.Print("[error] bad port")
-						return
-					}
+                    // Prepare host and port
+                    host, port, err := net.SplitHostPort(n.Address)
+                    if err != nil {
+                        log.Printf("[error] %v", err)
+                        return 
+                    }
+                    if host == "" {
+                        n.Address = "localhost:" + port
+                    }
+                    if port == "" {
+                        log.Print("[error] bad port")
+                        return
+                    }
+                    
+                    // Prepare data
+                    tags := map[string]string{"server": host, "port": port, "protocol": n.Protocol}
+                    fields, ok := cache.Get(n.Protocol+"-"+n.Address)
+                    if !ok {
+                        cache.Set(n.Protocol+"-"+n.Address, fields)
+                    }
 
-					// Prepare data
-					tags := map[string]string{"server": host, "port": port, "protocol": n.Protocol}
-					fields := map[string]interface{}{}
+                    // Gather data
+                    if n.Protocol == "tcp" {
 
-					// Gather data
-					if n.Protocol == "tcp" {
+                        state := false
+                        result, response := n.TCPGather()
 
-						result, response := n.TCPGather()
-						
-						tags["protocol"] = n.Protocol
-						fields["result_code"] = result
-						fields["response_time"] = response
+                        if result != fields.ResultCode {
+                            state = true
+                        } 
 
-						if result == 1 && len(conn_chan[n.Address]) == 0 {
+                        fields.ResultCode = result
+                        fields.ResponseTime = response
+                        data := DataSend{ Tags: tags, Fields: fields }
 
-							if conn_chan[n.Address] == nil {
-								conn_chan[n.Address] = make(chan int, 2)
-							}
-							conn_chan[n.Address] <- 1
+                        if state {
+                            jsn, err := json.Marshal(data)
+                            if err != nil {
+                                log.Printf("[error] %v", err)
+                            } else {
+                                _, err = conn.GatherURL("POST", string(jsn))
+                                if err != nil {
+                                    log.Printf("[error] %v", err)
+                                }
+                            }
+                        }
 
-							go func(){
-								conn_chan[n.Address] <- 1
-								tmpl, err := newTemplate(n.Address, cn.TracerouteCmd, tags)
-								if err != nil {
-									log.Printf("[error] %v", err)
-								} else {
-									out, err := runCommand(tmpl.String(), 300)
-									if err != nil {
-										log.Printf("[error] %v", err)
-									} else {
-										arr := strings.Split(string(out), "\n")
-										jou := map[string]interface{}{"tags": tags, "output": arr}
-										jsn, err := json.Marshal(jou)
-										if err != nil {
-											log.Printf("[error] %v", err)
-										} else {
-											_, err = conn.GatherURL("POST", string(jsn))
-											if err != nil {
-												log.Printf("[error] %v", err)
-											} 
-										}
-									}
-								}
-								_ = <- conn_chan[n.Address]
-							}()
-						}
+                        if (result == 1 || response > 4) && fields.Traceroute == 0 {
+                            fields.Traceroute = 1
+                            go func(data DataSend){
+                                tmpl, err := newTemplate(n.Address, cn.TracerouteCmd, tags)
+                                if err != nil {
+                                    log.Printf("[error] %v", err)
+                                    return
+                                }
 
-						if result == 0 && len(conn_chan[n.Address]) == 1 {
-							_ = <- conn_chan[n.Address]
-							//close(conn_chan[n.Address])
-						}
+                                out, err := runCommand(tmpl.String(), 300)
+                                if err != nil {
+                                    log.Printf("[error] %v", err)
+                                    return
+                                }
 
-					//} else if n.Protocol == "udp" {
-						//result, response = n.UDPGather()
-					} else {
-						log.Print("[error] bad protocol")
-						return
-					}
+                                data.Output = strings.Split(string(out), "\n")
+                                data.Fields.Traceroute = 1
+                                jsn, err := json.Marshal(data)
+                                if err != nil {
+                                    log.Printf("[error] %v", err)
+                                    return
+                                }
 
-					// Add metrics
-					if *plugin == "telegraf" {
-						fmt.Printf("%s\n", addFields("netmap", fields, tags))
-					}
+                                _, err = conn.GatherURL("POST", string(jsn))
+                                if err != nil {
+                                    log.Printf("[error] %v", err)
+                                }
+                            }(data)
+                        }
 
-				}(nr)
-			}
+                        if result == 0 && response < 4 && fields.Traceroute == 1 {
+                            fields.Traceroute = 0
+                        }
 
-		}
+                    //} else if n.Protocol == "udp" {
+                        //result, response = n.UDPGather()
+                    } else {
+                        log.Print("[error] bad protocol")
+                        return
+                    }
+                    
+                    // Adding to cache
+                    cache.Set(n.Protocol+"-"+n.Address, fields)
 
-		wg.Wait()
+                    // Adding metrics
+                    if *plugin == "telegraf" {
+                        fmt.Printf(
+                            "netmap,server=%s,port=%s,protocol=%s result_code=%d,response_time=%f\n", 
+                            host,
+                            port,
+                            n.Protocol,
+                            fields.ResultCode,
+                            fields.ResponseTime,
+                        )
+                    }
+
+                }(nr)
+            }
+
+        }
+
+        wg.Wait()
         
-		time.Sleep(time.Duration(*interval) * time.Second)
+        time.Sleep(time.Duration(*interval) * time.Second)
 
     }
 
