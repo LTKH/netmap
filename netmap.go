@@ -30,6 +30,7 @@ type Connection struct {
     BearerToken    string                  `toml:"bearer_token"`
     Headers        map[string]string       `toml:"headers"`
     TracerouteCmd  string                  `toml:"traceroute_cmd"`
+    MaxRespTime    float64                 `toml:"max_resp_time"`
 }
 
 type Config struct {
@@ -216,7 +217,7 @@ func main() {
                 if err := json.Unmarshal(body, &nrs); err != nil {
                     log.Printf("[error] error reading json from response body: %s", err)
                 }
-            }
+            }          
             
             for _, nr := range nrs {
                 wg.Add(1)
@@ -231,6 +232,9 @@ func main() {
                     if n.ReadTimeout == 0 {
                         n.ReadTimeout = 5 * time.Second
                     }
+                    if cn.MaxRespTime == 0 {
+                        cn.MaxRespTime = 5
+                    }
 
                     // Prepare host and port
                     host, port, err := net.SplitHostPort(n.Address)
@@ -239,7 +243,8 @@ func main() {
                         return 
                     }
                     if host == "" {
-                        n.Address = "localhost:" + port
+                        log.Print("[error] bad host")
+                        return
                     }
                     if port == "" {
                         log.Print("[error] bad port")
@@ -280,7 +285,7 @@ func main() {
                             //log.Printf("[info] %v", string(jsn))
                         }
 
-                        if (result == 1 || response > 4) && fields.Traceroute == 0 {
+                        if (result == 1 || response > cn.MaxRespTime) && fields.Traceroute == 0 {
                             fields.Traceroute = 1
                             go func(data DataSend){
                                 tmpl, err := newTemplate(n.Address, cn.TracerouteCmd, tags)
@@ -312,7 +317,7 @@ func main() {
                             }(data)
                         }
 
-                        if result == 0 && response < 4 && fields.Traceroute == 1 {
+                        if result == 0 && response <= cn.MaxRespTime && fields.Traceroute == 1 {
                             fields.Traceroute = 0
                         }
 
@@ -322,9 +327,6 @@ func main() {
                         log.Print("[error] bad protocol")
                         return
                     }
-                    
-                    // Adding to cache
-                    cache.Set(n.Protocol+"-"+n.Address, fields)
 
                     // Adding metrics
                     if *plugin == "telegraf" {
@@ -336,6 +338,15 @@ func main() {
                             fields.ResultCode,
                             fields.ResponseTime,
                         )
+                    }
+
+                    // Adding to cache
+                    fields.EndsAt = time.Now().UTC().Unix() + 600
+                    cache.Set(n.Protocol+"-"+n.Address, fields)
+
+                    // Delete expired items
+                    for _, v := range cache.DelExpiredItems() {
+                        log.Printf("[info] deleted cache key :%s", v)
                     }
 
                 }(nr)

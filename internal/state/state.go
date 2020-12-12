@@ -2,6 +2,7 @@ package state
 
 import (
     "sync"
+    "time"
 )
 
 type States struct {
@@ -30,6 +31,10 @@ func (s *States) Set(key string, value State) {
     s.Lock()
     defer s.Unlock()
 
+    if value.EndsAt == 0 {
+        value.EndsAt = time.Now().UTC().Unix() + 600
+    }
+
     s.items[key] = value
 
 }
@@ -46,4 +51,34 @@ func (s *States) Get(key string) (State, bool) {
     }
 
     return item, true
+}
+
+func (s *States) Delete(key string) bool {
+
+    s.Lock()
+    defer s.Unlock()
+
+    if _, found := s.items[key]; !found {
+        return false
+    }
+
+    delete(s.items, key)
+
+    return true
+}
+
+func (s *States) DelExpiredItems() []string {
+
+    s.Lock()
+    defer s.Unlock()
+
+    var keys []string
+    for k, v := range s.items {
+        if time.Now().UTC().Unix() > v.EndsAt {
+            delete(s.items, k)
+            keys = append(keys, k)
+        }
+    }
+
+    return keys
 }
