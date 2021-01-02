@@ -34,7 +34,14 @@ type Connection struct {
 }
 
 type Config struct {
-    Connection     []Connection
+    Global         Global
+    Connections    []Connection
+}
+
+type Global struct {
+    URLs           []string                `toml:"urls"`
+    NetstatCmd     string                  `toml:"netstat_cmd"`
+    Interval       time.Duration           `json:"interval"`
 }
 
 // NetResponse struct
@@ -185,6 +192,34 @@ func main() {
             }
         }
     }()
+
+    // Netmap run cmd
+    go func(){
+        for {
+            out, err := runCommand(cfg.Global.NetstatCmd, 300)
+            if err != nil {
+                log.Printf("[error] %v", err)
+            } else {
+                tags := map[string]string{"cmd": "netstat"}
+                fields := state.State{}
+                data := DataSend{ Tags: tags, Fields: fields, Output: make([]string, 0) }
+                data.Output = strings.Split(string(out), "\n")
+                jsn, err := json.Marshal(data)
+                if err != nil {
+                    log.Printf("[error] %v", err)
+                } else {
+                    conn := http.New(http.HTTP{
+                        URLs:        cfg.Global.URLs,
+                    })
+                    _, err = conn.GatherURL("POST", string(jsn))
+                    if err != nil {
+                        log.Printf("[error] %v", err)
+                    }
+                }
+            }
+            time.Sleep(time.Duration(cfg.Global.Interval) * time.Second)
+        }
+    }()
     
     // Сache initialization
     cache := state.NewCacheStates()
@@ -198,7 +233,7 @@ func main() {
 
         var wg sync.WaitGroup
 
-        for _, cn := range cfg.Connection {
+        for _, cn := range cfg.Connections {
 
             var nrs []NetResponse
 
