@@ -194,32 +194,34 @@ func main() {
     }()
 
     // Netmap run cmd
-    go func(){
-        for {
-            out, err := runCommand(cfg.Global.NetstatCmd, 300)
-            if err != nil {
-                log.Printf("[error] %v", err)
-            } else {
-                tags := map[string]string{"cmd": "netstat"}
-                fields := state.State{}
-                data := DataSend{ Tags: tags, Fields: fields, Output: make([]string, 0) }
-                data.Output = strings.Split(string(out), "\n")
-                jsn, err := json.Marshal(data)
+    if cfg.Global.Interval > 0 {
+        go func(){
+            for {
+                out, err := runCommand(cfg.Global.NetstatCmd, 300)
                 if err != nil {
                     log.Printf("[error] %v", err)
                 } else {
-                    conn := http.New(http.HTTP{
-                        URLs:        cfg.Global.URLs,
-                    })
-                    _, err = conn.GatherURL("POST", string(jsn))
+                    tags := map[string]string{"cmd": "netstat"}
+                    fields := state.State{}
+                    data := DataSend{ Tags: tags, Fields: fields, Output: make([]string, 0) }
+                    data.Output = strings.Split(string(out), "\n")
+                    jsn, err := json.Marshal(data)
                     if err != nil {
                         log.Printf("[error] %v", err)
+                    } else {
+                        conn := http.New(http.HTTP{
+                            URLs:        cfg.Global.URLs,
+                        })
+                        _, err = conn.GatherURL("POST", string(jsn))
+                        if err != nil {
+                            log.Printf("[error] %v", err)
+                        }
                     }
                 }
+                time.Sleep(time.Duration(cfg.Global.Interval) * time.Second)
             }
-            time.Sleep(time.Duration(cfg.Global.Interval) * time.Second)
-        }
-    }()
+        }()
+    }
     
     // Сache initialization
     cache := state.NewCacheStates()
