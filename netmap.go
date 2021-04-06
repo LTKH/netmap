@@ -161,12 +161,11 @@ func main() {
     if err != nil {
         log.Fatalf("[error] %v", err)
     }
-    defer f.Close()
-    
     var cfg Config
     if err := toml.NewDecoder(f).Decode(&cfg); err != nil {
         log.Fatalf("[error] %v", err)
     }
+    f.Close()
 
     log.Print("[info] netmap started -_-")
     
