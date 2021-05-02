@@ -1,8 +1,0 @@
-[global]
-urls = ["http://localhost:8080/test3.json"]
-netstat_cmd = "echo 1"
-interval = 60
-
-[[connections]]
-urls = ["http://localhost:8080/test3.json"]
-traceroute_cmd = "traceroute -m 3 -p {{ .port }} {{ .server }}"

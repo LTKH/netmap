@@ -1,0 +1,9 @@
+global:
+  listen_address:   ":8082"
+  cert_file:        ""
+  cert_key:         ""
+
+databases:
+  - uri: "neo4j://127.0.0.1:7687"
+    username: "neo4j"
+    password: "test"

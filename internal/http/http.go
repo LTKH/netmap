@@ -32,7 +32,7 @@ func New(h HTTP) HTTP {
 
     // Set default timeout
     if h.Timeout == 0 {
-        h.Timeout = 5000
+        h.Timeout = 5
     }
 
     h.client = &http.Client{
@@ -40,7 +40,7 @@ func New(h HTTP) HTTP {
             //TLSClientConfig: tlsCfg,
             Proxy:           http.ProxyFromEnvironment,
         },
-        //Timeout: h.Timeout,
+        Timeout: h.Timeout * time.Second,
     }
 
     rand.Seed(time.Now().UnixNano())
@@ -49,11 +49,11 @@ func New(h HTTP) HTTP {
     return h
 }
 
-func (h *HTTP) Gather(method, data string) ([]byte, error) {
+func (h *HTTP) Gather(method, path, data string) ([]byte, error) {
 
     for _, url := range h.URLs {
 
-        request, err := http.NewRequest(method, url, strings.NewReader(data))
+        request, err := http.NewRequest(method, url+path, strings.NewReader(data))
         if err != nil {
             log.Printf("[error] %s - %v", url, err)
             continue
@@ -96,7 +96,7 @@ func (h *HTTP) Gather(method, data string) ([]byte, error) {
         }
         defer resp.Body.Close()
 
-        if resp.StatusCode != 200 {
+        if resp.StatusCode >= 400 {
             log.Printf("[error] %s %s - received status code %d (%s)", method, url, resp.StatusCode, http.StatusText(resp.StatusCode))
             continue
         }
@@ -112,9 +112,9 @@ func (h *HTTP) Gather(method, data string) ([]byte, error) {
     return nil, fmt.Errorf("error failed to complete any request")
 }
 
-func (h *HTTP) GatherURL(method, data string) ([]byte, error) {
+func (h *HTTP) GatherURL(method, path, data string) ([]byte, error) {
 
-    body, err := h.Gather(method, data)
+    body, err := h.Gather(method, path, data)
     if err != nil {
         return nil, err
     }

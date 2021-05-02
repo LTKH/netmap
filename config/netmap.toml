@@ -1,0 +1,10 @@
+[global]
+urls = ["http://localhost:8082"]
+netstat_mod = true
+ignore_ports = [22]
+host_group = "test"
+interval = 10
+
+#[[connections]]
+#urls = ["http://localhost:8082"]
+#traceroute_cmd = "traceroute -m 3 -p {{ .port }} {{ .server }}"
