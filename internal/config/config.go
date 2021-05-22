@@ -8,6 +8,7 @@ import (
 type Config struct {
 	Global           *Global            `yaml:"global"`
     Databases        []*Database        `yaml:"databases"`
+	Alerting         *Alerting          `yaml:"alerting"`
 }
 
 type Global struct {
@@ -20,6 +21,18 @@ type Database struct {
     Uri              string             `yaml:"uri"`
 	UserName         string             `yaml:"username"`
 	Password         string             `yaml:"password"`
+}
+
+type Alerting struct {
+    Alertmanagers    []Alertmanager     `yaml:"alertmanagers"`
+}
+
+type Alertmanager struct {
+    StaticConfigs    []StaticConfig     `yaml:"static_configs"`
+}
+
+type StaticConfig struct {
+    Targets          []string           `yaml:"targets"`
 }
 
 func LoadConfigFile(filename string) (*Config, error) {

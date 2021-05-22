@@ -12,7 +12,7 @@ type States struct {
 
 type State struct {
     ResultCode      int      `json:"result_code"`           
-    ResponseTime    float64  `json:"response_time"`           
+    ResponseTime    float64  `json:"response_time"`
     Traceroute      int      `json:"-"`
     EndsAt          int64    `json:"-"`
 }

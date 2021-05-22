@@ -10,7 +10,6 @@ import (
     "flag"
     "net"
     "fmt"
-    "strings"
     "os/exec"
     "sync"
     "context"
@@ -32,7 +31,11 @@ type Connection struct {
     BearerToken    string                  `toml:"bearer_token"`
     Headers        map[string]string       `toml:"headers"`
     TracerouteCmd  string                  `toml:"traceroute_cmd"`
-    MaxRespTime    float64                 `toml:"max_resp_time"`
+    MaxRespTime    int                     `toml:"max_resp_time"`
+    Timeout        time.Duration           `json:"timeout"`
+    ReadTimeout    time.Duration           `json:"read_timeout"`
+    GroupName      string                  `toml:"group_name"`
+    HostName       string                  `toml:"host_name"`
 }
 
 type Config struct {
@@ -44,8 +47,9 @@ type Global struct {
     URLs           []string                `toml:"urls"`
     NetstatMod     bool                    `toml:"netstat_mod"`
     IgnorePorts    []uint16                `toml:"ignore_ports"`
-    HostGroup      string                  `toml:"host_group"`
     Interval       time.Duration           `toml:"interval"`
+    GroupName      string                  `toml:"group_name"`
+    HostName       string                  `toml:"host_name"`
 }
 
 // NetResponse struct
@@ -57,7 +61,7 @@ type NetResponse struct {
 }
 
 type DataSend struct {
-    Tags           map[string]string       `json:"tags"`
+    Tags           map[string]interface{}  `json:"tags"`
     Fields         state.State             `json:"fields"`
     Output         []string                `json:"output"`
 }
@@ -124,16 +128,20 @@ func runCommand(scmd string, timeout time.Duration) ([]byte, error) {
     return out, nil
 }
 
-func newTemplate(def string, tstr string, tags interface{})(bytes.Buffer, error){
+func newTemplate(def string, tstr string, vars interface{})(bytes.Buffer, error){
+
+    funcMap := template.FuncMap{
+        "hostname":        os.Hostname,
+    }
 
     var tpl bytes.Buffer
 
-    tmpl, err := template.New(def).Parse(tstr)
+    tmpl, err := template.New(def).Funcs(funcMap).Parse(tstr)
     if err != nil {
         return tpl, err
     }
 
-    if err = tmpl.Execute(&tpl, &tags); err != nil {
+    if err = tmpl.Execute(&tpl, &vars); err != nil {
         return tpl, err
     }
 
@@ -178,6 +186,16 @@ func main() {
     }
     f.Close()
 
+    hname, err := newTemplate("", cfg.Global.HostName, nil)
+    if err != nil {
+        log.Fatalf("[error] %v", err)
+    }
+
+    gname, err := newTemplate("", cfg.Global.GroupName, nil)
+    if err != nil {
+        log.Fatalf("[error] %v", err)
+    }
+
     log.Print("[info] netmap started -_-")
     
     run := true
@@ -208,23 +226,23 @@ func main() {
         go func(){
             for {
                 if cfg.Global.NetstatMod {
-                    nd, err := netstat.GetSocks(cfg.Global.IgnorePorts)
+                    nd, err := netstat.GetSocks(hname.String(), cfg.Global.IgnorePorts)
                     if err != nil {
                         log.Printf("[error] %v", err)
-                    }
-                    if len(nd.Data) > 0 {
-                        nd.Group = cfg.Global.HostGroup
-                        jsn, err := json.Marshal(nd)
-                        if err != nil {
-                            log.Printf("[error] %v", err)
-                        }
-                        //log.Printf("[debug] %v", string(jsn))
-                        conn := http.New(http.HTTP{
-                            URLs: cfg.Global.URLs,
-                        })
-                        _, err = conn.GatherURL("POST", "/api/v1/netmap/netstat", string(jsn))
-                        if err != nil {
-                            log.Printf("[error] %v", err)
+                    } else {
+                        if len(nd.Data) > 0 {
+                            nd.Group = cfg.Global.GroupName
+                            jsn, err := json.Marshal(nd)
+                            if err != nil {
+                                log.Printf("[error] %v", err)
+                            }
+                            conn := http.New(http.HTTP{
+                                URLs: cfg.Global.URLs,
+                            })
+                            _, err = conn.GatherURL("POST", "/api/v1/netmap/netstat", string(jsn))
+                            if err != nil {
+                                log.Printf("[error] %v", err)
+                            }
                         }
                     }
                 }
@@ -232,9 +250,6 @@ func main() {
             }
         }()
     }
-    
-    // Сache initialization
-    cache := state.NewCacheStates()
 
     // Daemon mode
     for (run) {
@@ -243,12 +258,12 @@ func main() {
             run = false
         }
 
-        var wg sync.WaitGroup
-
         for _, cn := range cfg.Connections {
 
-            var nrs v1.NetstatData
+            var wg sync.WaitGroup
+            var data []v1.Alert
 
+            //new client
             conn := http.New(http.HTTP{
                 URLs:        cn.URLs,
                 Username:    cn.Username,
@@ -257,7 +272,34 @@ func main() {
                 Headers:     cn.Headers,
             })
 
-            body, err := conn.GatherURL("GET", "/api/v1/netmap/read", "")
+            var nrs v1.NetstatData
+
+            //defining local variables
+            group_name := gname.String()
+            host_name := hname.String()
+
+            //local group name
+            if cn.GroupName != "" {
+                gn, err := newTemplate("", cn.GroupName, nil)
+                if err != nil {
+                    log.Fatalf("[error] %v", err)
+                    continue
+                }
+                group_name = gn.String()
+            }
+
+            //local host name
+            if cn.HostName != "" {
+                hn, err := newTemplate("", cn.HostName, nil)
+                if err != nil {
+                    log.Fatalf("[error] %v", err)
+                    continue
+                }
+                host_name = hn.String()
+            }
+
+            //getting connections
+            body, err := conn.GatherURL("GET", "/api/v1/netmap/records?group_name="+group_name+"&src_name="+host_name, "")
             if err != nil {
                 log.Printf("[error] %v", err)
             } else {
@@ -267,123 +309,142 @@ func main() {
             }
             
             for _, nr := range nrs.Data {
+                
                 wg.Add(1)
             
-                go func(n v1.SockTable) {
+                go func(e v1.SockTable) {
                     defer wg.Done()
 
                     // Gather data
-                    if n.Relation["mod"].(string) == "tcp" {
-                        state := false
-                        //result, response := n.TCPGather()
-                    }
-                    
-                    /*
-                    if cn.MaxRespTime == 0 {
-                        cn.MaxRespTime = 5
-                    }
-                    
-                    // Prepare data
-                    //tags := map[string]string{"server": n.RemoteAddr.Name, "port": n.RemoteAddr.Port.String(), "protocol": n.Protocol}
-                    tags := map[string]string{"server": n.RemoteAddr.Name, "protocol": "tcp"}
-                    fields, ok := cache.Get("tcp-"+n.RemoteAddr.IP.String())
-                    if !ok {
-                        cache.Set("tcp-"+n.RemoteAddr.IP.String(), fields)
-                    }
+                    if e.Relation.Mode == "tcp" {
 
-                    // Gather data
-                    if n.Protocol == "tcp" {
+                        tcp := &NetResponse{
+                            Address:         fmt.Sprintf("%v:%v", e.RemoteAddr.IP.String(), e.Relation.Port),
+                            Timeout:         cn.Timeout,
+                            ReadTimeout:     cn.ReadTimeout,
+                            Protocol:        e.Relation.Mode,
+                        }
 
-                        state := false
-                        result, response := n.TCPGather()
+                        result, response := tcp.TCPGather()
 
-                        if result != fields.ResultCode {
-                            state = true
-                        } 
+                        tags := map[string]string{
+                            "src_name":   e.LocalAddr.Name,
+                            "src_ip":     e.LocalAddr.IP.String(),
+                            "dst_name":   e.RemoteAddr.Name,
+                            "dst_ip":     e.RemoteAddr.IP.String(),
+                            "port":       fmt.Sprintf("%v", e.Relation.Port),
+                            "mode":       e.Relation.Mode,
+                        }
 
-                        fields.ResultCode = result
-                        fields.ResponseTime = response
-                        data := DataSend{ Tags: tags, Fields: fields, Output: make([]string, 0) }
+                        if (result == 1 || response > float64(cn.MaxRespTime)) {
+                            if e.Relation.Trace == 0 {
+                                e.Relation.Trace = 1
 
-                        if state {
-                            jsn, err := json.Marshal(data)
-                            if err != nil {
-                                log.Printf("[error] %v", err)
-                            } else {
-                                _, err = conn.GatherURL("POST", "/api/v1/netmap/status", string(jsn))
-                                if err != nil {
-                                    log.Printf("[error] %v", err)
-                                }
+                                go func(address string, tags map[string]string){
+
+                                    tmpl, err := newTemplate(address, cn.TracerouteCmd, tags)
+                                    if err != nil {
+                                        log.Printf("[error] %v", err)
+                                        return
+                                    }
+
+                                    out, err := runCommand(tmpl.String(), 600)
+                                    if err != nil {
+                                        log.Printf("[error] %v", err)
+                                        return
+                                    }
+
+                                    var dt []v1.Alert
+                                    var al v1.Alert
+
+                                    al.Labels = tags
+                                    al.Labels["alertname"] = "netmapTraceroute"
+                                    al.Annotations.Description = string(out)
+
+                                    dt = append(dt, al)
+
+                                    jsn, err := json.Marshal(dt)
+                                    if err != nil {
+                                        log.Printf("[error] %v", err)
+                                        return
+                                    }
+
+                                    _, err = conn.GatherURL("POST", "/api/v1/netmap/webhook", string(jsn))
+                                    if err != nil {
+                                        log.Printf("[error] %v", err)
+                                    }
+                                }(tcp.Address, tags)
                             }
+                        } else {
+                            e.Relation.Trace = 0
                         }
 
-                        if (result == 1 || response > cn.MaxRespTime) && fields.Traceroute == 0 {
-                            fields.Traceroute = 1
-                            go func(data DataSend){
-                                tmpl, err := newTemplate(n.Address, cn.TracerouteCmd, tags)
-                                if err != nil {
-                                    log.Printf("[error] %v", err)
-                                    return
-                                }
-
-                                out, err := runCommand(tmpl.String(), 300)
-                                if err != nil {
-                                    log.Printf("[error] %v", err)
-                                    return
-                                }
-
-                                data.Output = strings.Split(string(out), "\n")
-                                data.Fields.Traceroute = 1
-                                jsn, err := json.Marshal(data)
-                                if err != nil {
-                                    log.Printf("[error] %v", err)
-                                    return
-                                }
-
-                                _, err = conn.GatherURL("POST", "/api/v1/netmap/traceroute", string(jsn))
-                                if err != nil {
-                                    log.Printf("[error] %v", err)
-                                }
-                            }(data)
+                        if e.Relation.Result != result || result != 0 {
+                            var alert v1.Alert
+                            alert.Labels = tags
+                            alert.Labels["alertname"] = "netmapResponseStatus"
+                            if alert.Status = "resolved"; result != 0 {
+                                alert.Status = "firing"
+                            }
+                            data = append(data, alert)
                         }
 
-                        if result == 0 && response <= cn.MaxRespTime && fields.Traceroute == 1 {
-                            fields.Traceroute = 0
+                        e.Relation.Result = result
+                        e.Relation.Response = response
+
+                        var dt v1.NetstatData
+
+                        dt.Group = group_name
+                        dt.Data = append(dt.Data, e)
+
+                        jsn, err := json.Marshal(dt)
+                        if err != nil {
+                            log.Printf("[error] %v", err)
+                            return
                         }
-                    } else {
-                        log.Print("[error] bad protocol")
-                        return
-                    }
 
-                    // Adding metrics
-                    if *plugin == "telegraf" {
-                        fmt.Printf(
-                            "netmap,server=%s,port=%s,protocol=%s result_code=%d,response_time=%f\n", 
-                            host,
-                            port,
-                            n.Protocol,
-                            fields.ResultCode,
-                            fields.ResponseTime,
-                        )
-                    }
+                        //write status to DB
+                        _, err = conn.GatherURL("POST", "/api/v1/netmap/status", string(jsn))
+                        if err != nil {
+                            log.Printf("[error] %v", err)
+                        }
 
-                    // Adding to cache
-                    fields.EndsAt = time.Now().UTC().Unix() + 600
-                    cache.Set(n.Protocol+"-"+n.Address, fields)
-
-                    // Delete expired items
-                    for _, v := range cache.DelExpiredItems() {
-                        log.Printf("[info] deleted cache key :%s", v)
+                        // Adding metrics
+                        if *plugin == "telegraf" {
+                            fmt.Printf(
+                                "netmap,src_name=%s,dst_name=%s,port=%d,mode=%s result_code=%d,response_time=%f\n", 
+                                e.LocalAddr.Name,
+                                e.RemoteAddr.Name,
+                                e.Relation.Port,
+                                e.Relation.Mode,
+                                e.Relation.Result,
+                                e.Relation.Response,
+                            )
+                        }
                     }
-                    */
 
                 }(nr)
             }
 
+            wg.Wait()
+
+            if len(data) > 0 {
+
+                //create json
+                jsn, err := json.Marshal(data)
+                if err != nil {
+                    log.Printf("[error] %v", err)
+                    return
+                }
+
+                //sending status
+                _, err = conn.GatherURL("POST", "/api/v1/netmap/webhook", string(jsn))
+                if err != nil {
+                    log.Printf("[error] %v", err)
+                }
+            }
         }
 
-        wg.Wait()
-        
         time.Sleep(time.Duration(*interval) * time.Second)
 
     }

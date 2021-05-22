@@ -11,8 +11,30 @@ import (
     "strings"
     "io/ioutil"
     "encoding/json"
+    "github.com/ltkh/netmap/internal/client"
     "github.com/ltkh/netmap/internal/config"
     "github.com/neo4j/neo4j-go-driver/v4/neo4j"
+    "github.com/prometheus/client_golang/prometheus"
+)
+
+var (
+    resultCode = prometheus.NewGaugeVec(
+        prometheus.GaugeOpts{
+            Namespace: "netmap",
+            Name:      "result_code",
+            Help:      "",
+        },
+        []string{"src_name","dst_name","mode","port"},
+    )
+
+    responseTime = prometheus.NewGaugeVec(
+        prometheus.GaugeOpts{
+            Namespace: "netmap",
+            Name:      "response_time",
+            Help:      "",
+        },
+        []string{"src_name","dst_name","mode","port"},
+    )
 )
 
 type NetstatData struct {
@@ -22,9 +44,18 @@ type NetstatData struct {
 
 // SockTable type represents each line of the /proc/net/[tcp|udp]
 type SockTable struct {
-    Relation       map[string]interface{} `json:"relation"`
+    Relation       *Relation              `json:"relation"`
     LocalAddr      *SockAddr              `json:"localAddr"`
     RemoteAddr     *SockAddr              `json:"remoteAddr"`
+}
+
+type Relation struct {
+    Mode           string                 `json:"mode"`
+    Port           uint16                 `json:"port"`
+    Result         int                    `json:"result"`
+    Response       float64                `json:"response"`
+    Trace          int                    `json:"trace"`
+    Status         string                 `json:"status"`
 }
 
 // SockAddr represents an ip:port pair
@@ -58,8 +89,23 @@ type ApiStatus struct {
     Databases      []*config.Database
 }
 
-type ApiTraceroute struct {
-    Databases      []*config.Database
+type ApiWebhook struct {
+    Alerting       *config.Alerting
+}
+
+type Alert struct {
+    Status         string                 `json:"status,omitempty"`
+    Labels         map[string]string      `json:"labels"`
+    Annotations    Annotations            `json:"annotations"`
+}
+
+type Annotations struct {
+    Description    string                 `json:"description"`
+}
+
+func MonRegister(){
+    prometheus.MustRegister(resultCode)
+    prometheus.MustRegister(responseTime)
 }
 
 func runTransaction(driver neo4j.Driver, transact Transaction) (interface{}, error) {
@@ -67,11 +113,13 @@ func runTransaction(driver neo4j.Driver, transact Transaction) (interface{}, err
     defer session.Close()
 
     result, err := session.WriteTransaction(func(transaction neo4j.Transaction) (interface{}, error) {
+        var arr []interface{}
+
         result, err := transaction.Run(transact.Cypher, transact.Params)
         if err != nil {
             return nil, err
         }
-        var arr []interface{}
+
         keys := [3]string{"localAddr","relation","remoteAddr"}
         for result.Next() {
             a := map[string]interface{}{}
@@ -82,6 +130,7 @@ func runTransaction(driver neo4j.Driver, transact Transaction) (interface{}, err
             }
             arr = append(arr, a)
 		}
+
         return arr, nil
     })
     if err != nil {
@@ -91,11 +140,32 @@ func runTransaction(driver neo4j.Driver, transact Transaction) (interface{}, err
     return result, nil
 }
 
-func (a *ApiStatus) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-    w.WriteHeader(204)
-}
+func (a *ApiWebhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+    body, err := ioutil.ReadAll(r.Body)
+    if err != nil {
+        log.Printf("[error] %v - %s", err, r.URL.Path)
+        w.WriteHeader(400)
+        w.Write([]byte(err.Error()))
+        return
+    }
 
-func (a *ApiTraceroute) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+    for _, m := range a.Alerting.Alertmanagers {
+        for _, s := range m.StaticConfigs {
+            for _, t := range s.Targets {
+                go func() {
+                    //new client
+                    conn := client.New(client.HTTP{
+                        URLs:        []string{"http://"+t},
+                    })
+                    _, err = conn.GatherURL("POST", "/api/v1/alerts", string(body))
+                    if err != nil {
+                        log.Printf("[error] %v", err)
+                    }
+                }()
+            }
+        }
+    }
+    
     w.WriteHeader(204)
 }
 
@@ -106,25 +176,25 @@ func (a *ApiRecords) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
     for k, v := range r.URL.Query() {
         switch k {
-            case "rel_result":
+            case "result":
                 result, err := strconv.Atoi(v[0])
                 if err != nil {
                     log.Printf("[error] %v", err)
                     w.WriteHeader(500)
                 }
                 params[k] = result
-                condit = append(condit, "r.result = $rel_result")
-            case "rel_port":
+                condit = append(condit, "r.result = $result")
+            case "port":
                 port, err := strconv.Atoi(v[0])
                 if err != nil {
                     log.Printf("[error] %v", err)
                     w.WriteHeader(500)
                 }
                 params[k] = port
-                condit = append(condit, "r.port = $rel_port")
-            case "rel_mode":
+                condit = append(condit, "r.port = $port")
+            case "mode":
                 params[k] = v[0]
-                condit = append(condit, "r.mode = $rel_mode")
+                condit = append(condit, "r.mode = $mode")
             case "src_name":
                 params[k] = v[0]
                 condit = append(condit, "a.name =~ $src_name")
@@ -150,12 +220,12 @@ func (a *ApiRecords) ServeHTTP(w http.ResponseWriter, r *http.Request) {
         }
         defer driver.Close()
 
-        cypher := "MATCH (a)-[r:relation]->(b) RETURN a,r,b";
+        cypher := "MATCH (a)-[r:relation]->(b) RETURN a,r,b LIMIT 1000";
         if len(condit) > 0 {
-            cypher = "MATCH (a)-[r:relation]->(b) WHERE "+strings.Join(condit, " AND ")+" RETURN a,r,b"
+            cypher = "MATCH (a)-[r:relation]->(b) WHERE "+strings.Join(condit, " AND ")+" RETURN a,r,b LIMIT 1000"
         }
         arr, err := runTransaction(driver, Transaction{
-            Cypher: cypher+" LIMIT 1000",
+            Cypher: cypher,
             Params: params,
         })
         if err != nil {
@@ -216,7 +286,7 @@ func (a *ApiNetstat) ServeHTTP(w http.ResponseWriter, r *http.Request) {
             for _, v := range t.Data {
 
                 _, err := runTransaction(driver, Transaction{
-                    Cypher: fmt.Sprintf("MERGE(host:%s { name: $name, ip: $ip })", t.Group),
+                    Cypher: fmt.Sprintf("MERGE (host:%s { name: $name, ip: $ip })", t.Group),
                     Params: map[string]interface{}{
                         "name": v.LocalAddr.Name,
                         "ip": v.LocalAddr.IP.String(),
@@ -228,7 +298,7 @@ func (a *ApiNetstat) ServeHTTP(w http.ResponseWriter, r *http.Request) {
                 }
 
                 _, err = runTransaction(driver, Transaction{
-                    Cypher: fmt.Sprintf("MERGE(host:%s { name: $name, ip: $ip })", t.Group),
+                    Cypher: fmt.Sprintf("MERGE (host:%s { name: $name, ip: $ip })", t.Group),
                     Params: map[string]interface{}{
                         "name": v.RemoteAddr.Name,
                         "ip": v.RemoteAddr.IP.String(),
@@ -240,11 +310,12 @@ func (a *ApiNetstat) ServeHTTP(w http.ResponseWriter, r *http.Request) {
                 }
 
                 _, err = runTransaction(driver, Transaction{
-                    Cypher: fmt.Sprintf("MATCH (a:%s { ip: $src_ip }),(b:%s { ip: $dst_ip }) MERGE (a)-[r:relation{ mode: 'tcp', port: $port, result: 0, trace: 0, status: 'added' }]->(b)", t.Group, t.Group), 
+                    Cypher: fmt.Sprintf("MATCH (a:%s { name: $src_name }),(b { name: $dst_name }) MERGE (a)-[r:relation { mode: $mode, port: $port }]->(b)", t.Group),
                     Params: map[string]interface{}{
-                        "src_ip": v.LocalAddr.IP.String(),
-                        "dst_ip": v.RemoteAddr.IP.String(),
-                        "port": v.RemoteAddr.Port,
+                        "src_name":   v.LocalAddr.Name,
+                        "dst_name":   v.RemoteAddr.Name,
+                        "mode":       v.Relation.Mode,
+                        "port":       v.Relation.Port,
                     },
                 })
                 if err != nil {
@@ -253,19 +324,91 @@ func (a *ApiNetstat) ServeHTTP(w http.ResponseWriter, r *http.Request) {
                 }
 
                 _, err = runTransaction(driver, Transaction{
-                    Cypher: "MATCH (a)-[r:relation]->(b) WHERE a.ip = $src_ip AND b.ip = $dst_ip AND r.port = $port SET r.update = $update", 
+                    Cypher: fmt.Sprintf("MATCH (a:%s { name: $src_name })-[r:relation { port: $port, mode: $mode }]->(b { name: $dst_name }) SET r.result = 0, r.response = 0.0, r.trace = 0, r.update = $update", t.Group),
                     Params: map[string]interface{}{
-                        "src_ip": v.LocalAddr.IP.String(),
-                        "dst_ip": v.RemoteAddr.IP.String(),
-                        "port": v.RemoteAddr.Port,
-                        "update": time.Now().UTC().Unix(),
+                        "src_name":   v.LocalAddr.Name,
+                        "dst_name":   v.RemoteAddr.Name,
+                        "mode":       v.Relation.Mode,
+                        "port":       v.Relation.Port,
+                        "update":     time.Now().UTC().Unix(),
                     },
                 })
                 if err != nil {
                     log.Printf("[error] %v", err)
                     continue
                 }
+
             }
+        }(t, db)
+    }
+
+    w.WriteHeader(204)
+}
+
+func (a *ApiStatus) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+    var t NetstatData
+
+    body, err := ioutil.ReadAll(r.Body)
+    if err != nil {
+        log.Printf("[error] %v - %s", err, r.URL.Path)
+        w.WriteHeader(400)
+        w.Write([]byte(err.Error()))
+        return
+    }
+
+    if err := json.Unmarshal(body, &t); err != nil {
+        log.Printf("[error] %v - %s", err, r.URL.Path)
+        w.WriteHeader(400)
+        w.Write([]byte(err.Error()))
+        return
+    }
+
+    for _, db := range a.Databases {
+
+        go func(t NetstatData, db *config.Database){
+
+            driver, err := neo4j.NewDriver(db.Uri, neo4j.BasicAuth(db.UserName, db.Password, ""))
+            if err != nil {
+                log.Printf("[error] %v", err)
+                return
+            }
+            defer driver.Close()
+
+            for _, v := range t.Data {
+
+                //write status to DB
+                _, err = runTransaction(driver, Transaction{
+                    Cypher: fmt.Sprintf("MATCH (a:%s { name: $src_name })-[r:relation { port: $port, mode: $mode }]->(b { name: $dst_name }) SET r.result = $result, r.response = $response, r.trace = $trace", t.Group),
+                    Params: map[string]interface{}{
+                        "src_name":   v.LocalAddr.Name,
+                        "dst_name":   v.RemoteAddr.Name,
+                        "mode":       v.Relation.Mode,
+                        "port":       v.Relation.Port,
+                        "trace":      v.Relation.Trace,
+                        "result":     v.Relation.Result,
+                        "response":   v.Relation.Response,
+                    },
+                })
+                if err != nil {
+                    log.Printf("[error] %v", err)
+                    continue
+                }
+
+                resultCode.With(prometheus.Labels{ 
+                    "src_name": v.LocalAddr.Name, 
+                    "dst_name": v.RemoteAddr.Name, 
+                    "port":     fmt.Sprintf("%v", v.Relation.Port), 
+                    "mode":     fmt.Sprintf("%v", v.Relation.Mode), 
+                }).Set(float64(v.Relation.Result))
+
+                responseTime.With(prometheus.Labels{ 
+                    "src_name": v.LocalAddr.Name, 
+                    "dst_name": v.RemoteAddr.Name, 
+                    "port":     fmt.Sprintf("%v", v.Relation.Port), 
+                    "mode":     fmt.Sprintf("%v", v.Relation.Mode), 
+                }).Set(v.Relation.Response)
+            }
+
         }(t, db)
     }
 

@@ -3,6 +3,8 @@ package netstat
 import (
     "net"
     "time"
+    "fmt"
+    "strings"
     ns "github.com/cakturk/go-netstat/netstat"
     "github.com/ltkh/netmap/internal/api/v1"
 )
@@ -16,15 +18,18 @@ func ignorePorts(port uint16, iports []uint16) bool {
     return false
 }
 
-func getHostName(ipAddress string) string {
+func lookupAddr(ipAddress string) (string, error) {
     name, err := net.LookupAddr(ipAddress)
-    if err == nil {
-        return name[0]
+    if err != nil {
+        return "", err
     }
-    return "unknown"
+    if len(name) == 0 {
+        return "", fmt.Errorf("unknown host name: %s", ipAddress)
+    }
+    return strings.Trim(name[0], "."), nil
 }
 
-func GetSocks(iports []uint16) (v1.NetstatData, error) {
+func GetSocks(hostname string, iports []uint16) (v1.NetstatData, error) {
     var nd v1.NetstatData
 
     // TCP sockets
@@ -50,25 +55,35 @@ func GetSocks(iports []uint16) (v1.NetstatData, error) {
             continue
         }
 
-        ks[e.RemoteAddr.String()] = e.RemoteAddr.String()
-
-        conn, err := net.DialTimeout("tcp", e.RemoteAddr.String(), 1 * time.Second)
-        if err == nil {
-            //localName, err := net.LookupAddr(e.LocalAddr.IP.String())
-            nd.Data = append(nd.Data, v1.SockTable{
-                LocalAddr: &v1.SockAddr{
-                    IP:    e.LocalAddr.IP,
-                    Port:  e.LocalAddr.Port,
-                    Name:  getHostName(e.LocalAddr.IP.String()),
-                },
-                RemoteAddr: &v1.SockAddr{
-                    IP:    e.RemoteAddr.IP,
-                    Port:  e.RemoteAddr.Port,
-                    Name:  getHostName(e.RemoteAddr.IP.String()),
-                },
-            })
-            defer conn.Close()
+        ks[e.RemoteAddr.String()] = e.RemoteAddr.String() 
+        
+        addr, err := lookupAddr(e.RemoteAddr.IP.String())
+        if err != nil {
+            continue
         }
+
+        conn, err := net.DialTimeout("tcp", e.RemoteAddr.String(), 3 * time.Second)
+        if err != nil {
+            continue
+        }
+        defer conn.Close()
+        
+        nd.Data = append(nd.Data, v1.SockTable{
+            LocalAddr: &v1.SockAddr{
+                IP:    e.LocalAddr.IP,
+                Port:  e.LocalAddr.Port,
+                Name:  hostname,
+            },
+            RemoteAddr: &v1.SockAddr{
+                IP:    e.RemoteAddr.IP,
+                Port:  e.RemoteAddr.Port,
+                Name:  addr,
+            },
+            Relation: &v1.Relation{
+                Mode:  "tcp",
+                Port:  e.RemoteAddr.Port,
+            },
+        })
     }
 
     return nd, nil
