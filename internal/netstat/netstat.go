@@ -1,6 +1,7 @@
 package netstat
 
 import (
+    "os"
     "net"
     "time"
     "fmt"
@@ -8,6 +9,17 @@ import (
     ns "github.com/cakturk/go-netstat/netstat"
     "github.com/ltkh/netmap/internal/api/v1"
 )
+
+func Hostname() (string, error) {
+    hostname, err := os.Hostname()
+    if err != nil {
+        return "", err
+    }
+    if len(hostname) == 0 {
+        return "", fmt.Errorf("empty hostname")
+    }
+    return hostname, nil
+}
 
 func ignorePorts(port uint16, iports []uint16) bool {
     for _, p := range iports {
@@ -24,16 +36,22 @@ func lookupAddr(ipAddress string) (string, error) {
         return "", err
     }
     if len(name) == 0 {
-        return "", fmt.Errorf("unknown host name: %s", ipAddress)
+        return "", fmt.Errorf("unknown hostname: %s", ipAddress)
     }
     return strings.Trim(name[0], "."), nil
 }
 
-func GetSocks(hostname string, iports []uint16) (v1.NetstatData, error) {
+func GetSocks(iports []uint16) (v1.NetstatData, error) {
     var nd v1.NetstatData
 
     // TCP sockets
     socks, err := ns.TCPSocks(ns.NoopFilter)
+    if err != nil {
+        return nd, err
+    }
+
+    // Get hostname
+    hn, err := Hostname()
     if err != nil {
         return nd, err
     }
@@ -72,7 +90,7 @@ func GetSocks(hostname string, iports []uint16) (v1.NetstatData, error) {
             LocalAddr: &v1.SockAddr{
                 IP:    e.LocalAddr.IP,
                 Port:  e.LocalAddr.Port,
-                Name:  hostname,
+                Name:  hn,
             },
             RemoteAddr: &v1.SockAddr{
                 IP:    e.RemoteAddr.IP,

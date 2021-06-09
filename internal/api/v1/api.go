@@ -1,17 +1,17 @@
 package v1
 
 import (
-    "log"
+    //"log"
     "net"
-    "fmt"
-    "net/http"
-    "time"
+    //"fmt"
+    //"net/http"
+    //"time"
     "reflect"
-    "strconv"
-    "strings"
-    "io/ioutil"
-    "encoding/json"
-    "github.com/ltkh/netmap/internal/client"
+    //"strconv"
+    //"strings"
+    //"io/ioutil"
+    //"encoding/json"
+    //"github.com/ltkh/netmap/internal/client"
     "github.com/ltkh/netmap/internal/config"
     "github.com/neo4j/neo4j-go-driver/v4/neo4j"
     "github.com/prometheus/client_golang/prometheus"
@@ -38,7 +38,6 @@ var (
 )
 
 type NetstatData struct {
-    Group          string                 `json:"group"`
     Data           []SockTable            `json:"data"`
 }
 
@@ -140,6 +139,7 @@ func runTransaction(driver neo4j.Driver, transact Transaction) (interface{}, err
     return result, nil
 }
 
+/*
 func (a *ApiWebhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
     body, err := ioutil.ReadAll(r.Body)
     if err != nil {
@@ -157,7 +157,7 @@ func (a *ApiWebhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
                     conn := client.New(client.HTTP{
                         URLs:        []string{"http://"+t},
                     })
-                    _, err = conn.GatherURL("POST", "/api/v1/alerts", string(body))
+                    _, err = conn.HttpRequest("POST", "/api/v1/alerts", body)
                     if err != nil {
                         log.Printf("[error] %v", err)
                     }
@@ -276,6 +276,8 @@ func (a *ApiNetstat) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
         go func(t NetstatData, db *config.Database){
 
+            group := "test"
+
             driver, err := neo4j.NewDriver(db.Uri, neo4j.BasicAuth(db.UserName, db.Password, ""))
             if err != nil {
                 log.Printf("[error] %v", err)
@@ -286,7 +288,7 @@ func (a *ApiNetstat) ServeHTTP(w http.ResponseWriter, r *http.Request) {
             for _, v := range t.Data {
 
                 _, err := runTransaction(driver, Transaction{
-                    Cypher: fmt.Sprintf("MERGE (host:%s { name: $name, ip: $ip })", t.Group),
+                    Cypher: fmt.Sprintf("MERGE (host:%s { name: $name, ip: $ip })", group),
                     Params: map[string]interface{}{
                         "name": v.LocalAddr.Name,
                         "ip": v.LocalAddr.IP.String(),
@@ -298,7 +300,7 @@ func (a *ApiNetstat) ServeHTTP(w http.ResponseWriter, r *http.Request) {
                 }
 
                 _, err = runTransaction(driver, Transaction{
-                    Cypher: fmt.Sprintf("MERGE (host:%s { name: $name, ip: $ip })", t.Group),
+                    Cypher: fmt.Sprintf("MERGE (host:%s { name: $name, ip: $ip })", group),
                     Params: map[string]interface{}{
                         "name": v.RemoteAddr.Name,
                         "ip": v.RemoteAddr.IP.String(),
@@ -310,7 +312,7 @@ func (a *ApiNetstat) ServeHTTP(w http.ResponseWriter, r *http.Request) {
                 }
 
                 _, err = runTransaction(driver, Transaction{
-                    Cypher: fmt.Sprintf("MATCH (a:%s { name: $src_name }),(b { name: $dst_name }) MERGE (a)-[r:relation { mode: $mode, port: $port }]->(b)", t.Group),
+                    Cypher: fmt.Sprintf("MATCH (a:%s { name: $src_name }),(b { name: $dst_name }) MERGE (a)-[r:relation { mode: $mode, port: $port }]->(b)", group),
                     Params: map[string]interface{}{
                         "src_name":   v.LocalAddr.Name,
                         "dst_name":   v.RemoteAddr.Name,
@@ -324,7 +326,7 @@ func (a *ApiNetstat) ServeHTTP(w http.ResponseWriter, r *http.Request) {
                 }
 
                 _, err = runTransaction(driver, Transaction{
-                    Cypher: fmt.Sprintf("MATCH (a:%s { name: $src_name })-[r:relation { port: $port, mode: $mode }]->(b { name: $dst_name }) SET r.result = 0, r.response = 0.0, r.trace = 0, r.update = $update", t.Group),
+                    Cypher: fmt.Sprintf("MATCH (a:%s { name: $src_name })-[r:relation { port: $port, mode: $mode }]->(b { name: $dst_name }) SET r.result = 0, r.response = 0.0, r.trace = 0, r.update = $update", group),
                     Params: map[string]interface{}{
                         "src_name":   v.LocalAddr.Name,
                         "dst_name":   v.RemoteAddr.Name,
@@ -367,6 +369,8 @@ func (a *ApiStatus) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
         go func(t NetstatData, db *config.Database){
 
+            group := "test"
+
             driver, err := neo4j.NewDriver(db.Uri, neo4j.BasicAuth(db.UserName, db.Password, ""))
             if err != nil {
                 log.Printf("[error] %v", err)
@@ -378,7 +382,7 @@ func (a *ApiStatus) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
                 //write status to DB
                 _, err = runTransaction(driver, Transaction{
-                    Cypher: fmt.Sprintf("MATCH (a:%s { name: $src_name })-[r:relation { port: $port, mode: $mode }]->(b { name: $dst_name }) SET r.result = $result, r.response = $response, r.trace = $trace", t.Group),
+                    Cypher: fmt.Sprintf("MATCH (a:%s { name: $src_name })-[r:relation { port: $port, mode: $mode }]->(b { name: $dst_name }) SET r.result = $result, r.response = $response, r.trace = $trace", group),
                     Params: map[string]interface{}{
                         "src_name":   v.LocalAddr.Name,
                         "dst_name":   v.RemoteAddr.Name,
@@ -414,3 +418,4 @@ func (a *ApiStatus) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
     w.WriteHeader(204)
 }
+*/

@@ -18,7 +18,7 @@ import (
     "text/template"
     "github.com/naoina/toml"
     "gopkg.in/natefinch/lumberjack.v2"
-    "github.com/ltkh/netmap/internal/http"
+    "github.com/ltkh/netmap/internal/client"
     "github.com/ltkh/netmap/internal/state"
     "github.com/ltkh/netmap/internal/netstat"
     "github.com/ltkh/netmap/internal/api/v1"
@@ -34,8 +34,7 @@ type Connection struct {
     MaxRespTime    int                     `toml:"max_resp_time"`
     Timeout        time.Duration           `json:"timeout"`
     ReadTimeout    time.Duration           `json:"read_timeout"`
-    GroupName      string                  `toml:"group_name"`
-    HostName       string                  `toml:"host_name"`
+    Interval       time.Duration           `toml:"interval"`
 }
 
 type Config struct {
@@ -48,8 +47,6 @@ type Global struct {
     NetstatMod     bool                    `toml:"netstat_mod"`
     IgnorePorts    []uint16                `toml:"ignore_ports"`
     Interval       time.Duration           `toml:"interval"`
-    GroupName      string                  `toml:"group_name"`
-    HostName       string                  `toml:"host_name"`
 }
 
 // NetResponse struct
@@ -186,16 +183,6 @@ func main() {
     }
     f.Close()
 
-    hname, err := newTemplate("", cfg.Global.HostName, nil)
-    if err != nil {
-        log.Fatalf("[error] %v", err)
-    }
-
-    gname, err := newTemplate("", cfg.Global.GroupName, nil)
-    if err != nil {
-        log.Fatalf("[error] %v", err)
-    }
-
     log.Print("[info] netmap started -_-")
     
     run := true
@@ -221,34 +208,228 @@ func main() {
         }
     }()
 
-    // Netmap run cmd
-    if cfg.Global.Interval > 0 {
+    // Netstat run cmd
+    if cfg.Global.NetstatMod == true {
+
+        if cfg.Global.Interval == 0 {
+            cfg.Global.Interval = 300
+        }
+
         go func(){
+
             for {
-                if cfg.Global.NetstatMod {
-                    nd, err := netstat.GetSocks(hname.String(), cfg.Global.IgnorePorts)
-                    if err != nil {
-                        log.Printf("[error] %v", err)
-                    } else {
-                        if len(nd.Data) > 0 {
-                            nd.Group = cfg.Global.GroupName
-                            jsn, err := json.Marshal(nd)
-                            if err != nil {
-                                log.Printf("[error] %v", err)
-                            }
-                            conn := http.New(http.HTTP{
+
+                nd, err := netstat.GetSocks(cfg.Global.IgnorePorts)
+                if err != nil {
+                    log.Printf("[error] %v", err)
+                } else {
+                    if len(nd.Data) > 0 {
+                        jsn, err := json.Marshal(nd)
+                        if err != nil {
+                            log.Printf("[error] %v", err)
+                        } else {
+                            conn := client.New(client.HTTP{
                                 URLs: cfg.Global.URLs,
                             })
-                            _, err = conn.GatherURL("POST", "/api/v1/netmap/netstat", string(jsn))
+                            _, err = conn.HttpRequest("POST", "/api/v1/netmap/netstat", jsn)
                             if err != nil {
                                 log.Printf("[error] %v", err)
                             }
                         }
                     }
                 }
+
                 time.Sleep(time.Duration(cfg.Global.Interval) * time.Second)
             }
         }()
+    }
+
+    for _, cn := range cfg.Connections {
+
+        go func(cn Connection) {
+
+            if cn.Interval == 0 {
+                cn.Interval = 60
+            }
+
+            for {
+
+                hname, err := netstat.Hostname()
+                if err != nil {
+                    log.Printf("[error] %v", err)
+                    time.Sleep(600 * time.Second)
+                    continue
+                }
+
+                var nrs v1.NetstatData
+                var nrr v1.NetstatData
+                var data []v1.Alert
+                var wg sync.WaitGroup
+
+                //new client
+                conn := client.New(client.HTTP{
+                    URLs:        cn.URLs,
+                    Username:    cn.Username,
+                    Password:    cn.Password,
+                    BearerToken: cn.BearerToken,
+                    Headers:     cn.Headers,
+                })
+
+                //getting connections
+                body, err := conn.HttpRequest("GET", "/api/v1/netmap/records?src_name="+hname, []byte(""))
+                if err != nil {
+                    log.Printf("[error] %v", err)
+                } else {
+                    if err := json.Unmarshal(body, &nrs); err != nil {
+                        log.Printf("[error] error reading json from response body: %s", err)
+                    }
+                }
+
+                for _, nr := range nrs.Data {
+            
+                    wg.Add(1)
+                
+                    go func(e v1.SockTable) {
+                        defer wg.Done()
+        
+                        // Gather data
+                        if e.Relation.Mode == "tcp" {
+        
+                            tcp := &NetResponse{
+                                Address:         fmt.Sprintf("%v:%v", e.RemoteAddr.IP.String(), e.Relation.Port),
+                                Timeout:         cn.Timeout,
+                                ReadTimeout:     cn.ReadTimeout,
+                                Protocol:        e.Relation.Mode,
+                            }
+        
+                            result, response := tcp.TCPGather()
+        
+                            tags := map[string]string{
+                                "src_name":   e.LocalAddr.Name,
+                                "src_ip":     e.LocalAddr.IP.String(),
+                                "dst_name":   e.RemoteAddr.Name,
+                                "dst_ip":     e.RemoteAddr.IP.String(),
+                                "port":       fmt.Sprintf("%v", e.Relation.Port),
+                                "mode":       e.Relation.Mode,
+                            }
+
+                            if cn.MaxRespTime == 0 {
+                                cn.MaxRespTime = 10
+                            }
+        
+                            if (result == 1 || response > float64(cn.MaxRespTime)) {
+                                if e.Relation.Trace == 0 {
+                                    e.Relation.Trace = 1
+        
+                                    go func(address string, tags map[string]string){
+        
+                                        tmpl, err := newTemplate(address, cn.TracerouteCmd, tags)
+                                        if err != nil {
+                                            log.Printf("[error] %v", err)
+                                            return
+                                        }
+        
+                                        out, err := runCommand(tmpl.String(), 600)
+                                        if err != nil {
+                                            log.Printf("[error] %v", err)
+                                            return
+                                        }
+        
+                                        var dt []v1.Alert
+                                        var al v1.Alert
+        
+                                        al.Labels = tags
+                                        al.Labels["alertname"] = "netmapTraceroute"
+                                        al.Annotations.Description = string(out)
+        
+                                        dt = append(dt, al)
+        
+                                        jsn, err := json.Marshal(dt)
+                                        if err != nil {
+                                            log.Printf("[error] %v", err)
+                                            return
+                                        }
+        
+                                        _, err = conn.HttpRequest("POST", "/api/v1/netmap/webhook", jsn)
+                                        if err != nil {
+                                            log.Printf("[error] %v", err)
+                                        }
+
+                                    }(tcp.Address, tags)
+                                }
+                            } else {
+                                e.Relation.Trace = 0
+                            }
+        
+                            if e.Relation.Result != result || result != 0 {
+                                var alert v1.Alert
+                                alert.Labels = tags
+                                alert.Labels["alertname"] = "netmapResponseStatus"
+                                if alert.Status = "resolved"; result != 0 {
+                                    alert.Status = "firing"
+                                }
+                                data = append(data, alert)
+                            }
+        
+                            e.Relation.Result = result
+                            e.Relation.Response = response
+
+                            nrr.Data = append(nrr.Data, e)
+        
+                            // Adding metrics
+                            if *plugin == "telegraf" {
+                                fmt.Printf(
+                                    "netmap,src_name=%s,dst_name=%s,port=%d,mode=%s result_code=%d,response_time=%f\n", 
+                                    e.LocalAddr.Name,
+                                    e.RemoteAddr.Name,
+                                    e.Relation.Port,
+                                    e.Relation.Mode,
+                                    e.Relation.Result,
+                                    e.Relation.Response,
+                                )
+                            }
+                        }
+        
+                    }(nr)
+                }
+        
+                wg.Wait()
+
+                if len(nrr.Data) > 0 {
+        
+                    //create json
+                    jsn, err := json.Marshal(nrr)
+                    if err != nil {
+                        log.Printf("[error] %v", err)
+                    } else {
+                        //write status to DB
+                        _, err = conn.HttpRequest("POST", "/api/v1/netmap/status", jsn)
+                        if err != nil {
+                            log.Printf("[error] %v", err)
+                        }
+                    }
+                }
+        
+                if len(data) > 0 {
+        
+                    //create json
+                    jsn, err := json.Marshal(data)
+                    if err != nil {
+                        log.Printf("[error] %v", err)
+                    } else {
+                        //sending status
+                        _, err = conn.HttpRequest("POST", "/api/v1/netmap/webhook", jsn)
+                        if err != nil {
+                            log.Printf("[error] %v", err)
+                        }
+                    }
+                }
+
+                time.Sleep(time.Duration(cn.Interval) * time.Second)
+            }
+
+        }(cn)        
+        
     }
 
     // Daemon mode
@@ -256,193 +437,6 @@ func main() {
 
         if *plugin == "telegraf" {
             run = false
-        }
-
-        for _, cn := range cfg.Connections {
-
-            var wg sync.WaitGroup
-            var data []v1.Alert
-
-            //new client
-            conn := http.New(http.HTTP{
-                URLs:        cn.URLs,
-                Username:    cn.Username,
-                Password:    cn.Password,
-                BearerToken: cn.BearerToken,
-                Headers:     cn.Headers,
-            })
-
-            var nrs v1.NetstatData
-
-            //defining local variables
-            group_name := gname.String()
-            host_name := hname.String()
-
-            //local group name
-            if cn.GroupName != "" {
-                gn, err := newTemplate("", cn.GroupName, nil)
-                if err != nil {
-                    log.Fatalf("[error] %v", err)
-                    continue
-                }
-                group_name = gn.String()
-            }
-
-            //local host name
-            if cn.HostName != "" {
-                hn, err := newTemplate("", cn.HostName, nil)
-                if err != nil {
-                    log.Fatalf("[error] %v", err)
-                    continue
-                }
-                host_name = hn.String()
-            }
-
-            //getting connections
-            body, err := conn.GatherURL("GET", "/api/v1/netmap/records?group_name="+group_name+"&src_name="+host_name, "")
-            if err != nil {
-                log.Printf("[error] %v", err)
-            } else {
-                if err := json.Unmarshal(body, &nrs); err != nil {
-                    log.Printf("[error] error reading json from response body: %s", err)
-                }
-            }
-            
-            for _, nr := range nrs.Data {
-                
-                wg.Add(1)
-            
-                go func(e v1.SockTable) {
-                    defer wg.Done()
-
-                    // Gather data
-                    if e.Relation.Mode == "tcp" {
-
-                        tcp := &NetResponse{
-                            Address:         fmt.Sprintf("%v:%v", e.RemoteAddr.IP.String(), e.Relation.Port),
-                            Timeout:         cn.Timeout,
-                            ReadTimeout:     cn.ReadTimeout,
-                            Protocol:        e.Relation.Mode,
-                        }
-
-                        result, response := tcp.TCPGather()
-
-                        tags := map[string]string{
-                            "src_name":   e.LocalAddr.Name,
-                            "src_ip":     e.LocalAddr.IP.String(),
-                            "dst_name":   e.RemoteAddr.Name,
-                            "dst_ip":     e.RemoteAddr.IP.String(),
-                            "port":       fmt.Sprintf("%v", e.Relation.Port),
-                            "mode":       e.Relation.Mode,
-                        }
-
-                        if (result == 1 || response > float64(cn.MaxRespTime)) {
-                            if e.Relation.Trace == 0 {
-                                e.Relation.Trace = 1
-
-                                go func(address string, tags map[string]string){
-
-                                    tmpl, err := newTemplate(address, cn.TracerouteCmd, tags)
-                                    if err != nil {
-                                        log.Printf("[error] %v", err)
-                                        return
-                                    }
-
-                                    out, err := runCommand(tmpl.String(), 600)
-                                    if err != nil {
-                                        log.Printf("[error] %v", err)
-                                        return
-                                    }
-
-                                    var dt []v1.Alert
-                                    var al v1.Alert
-
-                                    al.Labels = tags
-                                    al.Labels["alertname"] = "netmapTraceroute"
-                                    al.Annotations.Description = string(out)
-
-                                    dt = append(dt, al)
-
-                                    jsn, err := json.Marshal(dt)
-                                    if err != nil {
-                                        log.Printf("[error] %v", err)
-                                        return
-                                    }
-
-                                    _, err = conn.GatherURL("POST", "/api/v1/netmap/webhook", string(jsn))
-                                    if err != nil {
-                                        log.Printf("[error] %v", err)
-                                    }
-                                }(tcp.Address, tags)
-                            }
-                        } else {
-                            e.Relation.Trace = 0
-                        }
-
-                        if e.Relation.Result != result || result != 0 {
-                            var alert v1.Alert
-                            alert.Labels = tags
-                            alert.Labels["alertname"] = "netmapResponseStatus"
-                            if alert.Status = "resolved"; result != 0 {
-                                alert.Status = "firing"
-                            }
-                            data = append(data, alert)
-                        }
-
-                        e.Relation.Result = result
-                        e.Relation.Response = response
-
-                        var dt v1.NetstatData
-
-                        dt.Group = group_name
-                        dt.Data = append(dt.Data, e)
-
-                        jsn, err := json.Marshal(dt)
-                        if err != nil {
-                            log.Printf("[error] %v", err)
-                            return
-                        }
-
-                        //write status to DB
-                        _, err = conn.GatherURL("POST", "/api/v1/netmap/status", string(jsn))
-                        if err != nil {
-                            log.Printf("[error] %v", err)
-                        }
-
-                        // Adding metrics
-                        if *plugin == "telegraf" {
-                            fmt.Printf(
-                                "netmap,src_name=%s,dst_name=%s,port=%d,mode=%s result_code=%d,response_time=%f\n", 
-                                e.LocalAddr.Name,
-                                e.RemoteAddr.Name,
-                                e.Relation.Port,
-                                e.Relation.Mode,
-                                e.Relation.Result,
-                                e.Relation.Response,
-                            )
-                        }
-                    }
-
-                }(nr)
-            }
-
-            wg.Wait()
-
-            if len(data) > 0 {
-
-                //create json
-                jsn, err := json.Marshal(data)
-                if err != nil {
-                    log.Printf("[error] %v", err)
-                    return
-                }
-
-                //sending status
-                _, err = conn.GatherURL("POST", "/api/v1/netmap/webhook", string(jsn))
-                if err != nil {
-                    log.Printf("[error] %v", err)
-                }
-            }
         }
 
         time.Sleep(time.Duration(*interval) * time.Second)

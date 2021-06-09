@@ -2,12 +2,9 @@
 urls = ["http://localhost:8082"]
 netstat_mod = true
 ignore_ports = [22]
-interval = 60
-group_name = "test"
-#host_name = "{{ hostname }}"
-host_name = "localhost.example.com"
+interval = 300
 
 [[connections]]
 urls = ["http://localhost:8082"]
-max_resp_time = 10
+max_resp_time = 5
 traceroute_cmd = "traceroute -m 3 -p {{ .port }} {{ .dst_name }}"

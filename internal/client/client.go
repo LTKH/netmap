@@ -1,7 +1,9 @@
 package client
 
 import (
+    "io"
     "log"
+    "bytes"
     "strings"
     "net/http"
     "time"
@@ -49,11 +51,12 @@ func New(h HTTP) HTTP {
     return h
 }
 
-func (h *HTTP) Gather(method, path, data string) ([]byte, error) {
+func (h *HTTP) HttpRequest(method string, path string, data []byte) ([]byte, error) {
+    var reqBodyBuffer io.Reader = bytes.NewBuffer(data)
 
     for _, url := range h.URLs {
 
-        request, err := http.NewRequest(method, url+path, strings.NewReader(data))
+        request, err := http.NewRequest(method, url+path, reqBodyBuffer)
         if err != nil {
             log.Printf("[error] %s - %v", url, err)
             continue
@@ -96,13 +99,14 @@ func (h *HTTP) Gather(method, path, data string) ([]byte, error) {
         }
         defer resp.Body.Close()
 
-        if resp.StatusCode >= 400 {
-            log.Printf("[error] %s %s - received status code %d (%s)", method, url, resp.StatusCode, http.StatusText(resp.StatusCode))
+        body, err := ioutil.ReadAll(resp.Body)
+
+        if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+            log.Printf("[error] when writing to [%s] received status code: %d", url+path, resp.StatusCode)
             continue
         }
-
-        body, err := ioutil.ReadAll(resp.Body)
         if err != nil {
+            log.Printf("[error] when writing to [%s] received error: %v", url+path, err)
             continue
         }
 
@@ -110,14 +114,4 @@ func (h *HTTP) Gather(method, path, data string) ([]byte, error) {
     }
 
     return nil, fmt.Errorf("error failed to complete any request")
-}
-
-func (h *HTTP) GatherURL(method, path, data string) ([]byte, error) {
-
-    body, err := h.Gather(method, path, data)
-    if err != nil {
-        return nil, err
-    }
-
-    return body, nil
 }
