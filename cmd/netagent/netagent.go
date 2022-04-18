@@ -24,6 +24,15 @@ import (
     "github.com/ltkh/netmap/internal/api/v1"
 )
 
+var (
+    cacheConnections *Connections = NewCacheConnections()
+)
+
+type Connections struct {
+    sync.RWMutex
+    items          map[string]v1.SockTable
+}
+
 type Connection struct {
     URLs           []string                `toml:"urls"`
     Username       string                  `toml:"username"`
@@ -62,6 +71,30 @@ type DataSend struct {
     Fields         state.State             `json:"fields"`
     Output         []string                `json:"output"`
 }
+
+func NewCacheConnections() *Connections {
+    cache := Connections{
+        items: make(map[string]v1.SockTable),
+    }
+    return &cache
+}
+
+func (t *Connections) Set(key string, val v1.SockTable) {
+    t.Lock()
+    defer t.Unlock()
+    t.items[key] = val
+}
+
+func (t *Connections) Get(key string) (v1.SockTable, bool) {
+    t.RLock()
+    defer t.RUnlock()
+    val, found := t.items[key]
+    if !found {
+        return 0, false
+    }
+    return val, true
+}
+
 
 // TCPGather will execute if there are TCP tests defined in the configuration.
 // It will return a map[string]interface{} for fields and a map[string]string for tags
@@ -291,6 +324,12 @@ func main() {
                 
                     go func(e v1.SockTable) {
                         defer wg.Done()
+
+                        id := fmt.Sprintf("%v:%v:%v", e.LocalAddr.Name, e.Relation.Port, e.RemoteAddr.Name)
+                        _, ok := cacheConnections.Get(id)
+                        if ok == false {
+                            cacheConnections.Set(id, e)
+                        }
         
                         // Gather data
                         if e.Relation.Mode == "tcp" {

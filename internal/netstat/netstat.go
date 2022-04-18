@@ -33,10 +33,10 @@ func ignorePorts(port uint16, iports []uint16) bool {
 func lookupAddr(ipAddress string) (string, error) {
     name, err := net.LookupAddr(ipAddress)
     if err != nil {
-        return "", err
+        return ipAddress, nil
     }
     if len(name) == 0 {
-        return "", fmt.Errorf("unknown hostname: %s", ipAddress)
+        return ipAddress, nil
     }
     return strings.Trim(name[0], "."), nil
 }
