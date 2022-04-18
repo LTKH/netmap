@@ -325,10 +325,12 @@ func main() {
                     go func(e v1.SockTable) {
                         defer wg.Done()
 
+                        el := v1.SockTable{}
                         id := fmt.Sprintf("%v:%v:%v", e.LocalAddr.Name, e.Relation.Port, e.RemoteAddr.Name)
-                        _, ok := cacheConnections.Get(id)
+                        el, ok := cacheConnections.Get(id)
                         if ok == false {
                             cacheConnections.Set(id, e)
+                            el = e
                         }
         
                         // Gather data

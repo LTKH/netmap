@@ -16,15 +16,17 @@ func main() {
 	}
 	defer conn.Close()
 
-	buffer := make([]byte, 0)
+    fmt.Fprintf(conn, "PING\r\n")
+
+	buffer := make([]byte, 1024)
 	bytesRead, err := conn.Read(buffer)
-	if err != nil {
+	if bytesRead == 0 || err != nil {
 		conn.Close()
-		fmt.Print(err)
+		//fmt.Print(err)
 		return
 	}
 
-	fmt.Println(bytesRead)
+	fmt.Println(string(buffer))
 
     //buf := make([]byte, 1024)
 	//_, err = conn.Read(buf)
