@@ -498,7 +498,7 @@ func main() {
     for (run) {
 
         if *plugin == "telegraf" {
-            //run = false
+            run = false
         }
 
         time.Sleep(time.Duration(*interval) * time.Second)
