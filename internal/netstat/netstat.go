@@ -6,8 +6,9 @@ import (
     "time"
     "fmt"
     "strings"
-    ns "github.com/cakturk/go-netstat/netstat"
+    "github.com/ltkh/netmap/internal/cache"
     "github.com/ltkh/netmap/internal/api/v1"
+    ns "github.com/cakturk/go-netstat/netstat"
 )
 
 func Hostname() (string, error) {
@@ -41,8 +42,16 @@ func lookupAddr(ipAddress string) (string, error) {
     return strings.Trim(name[0], "."), nil
 }
 
-func GetSocks(iports []uint16) (v1.NetstatData, error) {
+func GetSocks(iports []uint16, options cache.Options) (v1.NetstatData, error) {
     var nd v1.NetstatData
+
+    if options.Timeout == 0 {
+        options.Timeout = 5
+    }
+
+    if options.MaxRespTime == 0 {
+        options.MaxRespTime = 10
+    }
 
     // TCP sockets
     socks, err := ns.TCPSocks(ns.NoopFilter)
@@ -80,27 +89,26 @@ func GetSocks(iports []uint16) (v1.NetstatData, error) {
             continue
         }
 
-        conn, err := net.DialTimeout("tcp", e.RemoteAddr.String(), 3 * time.Second)
+        conn, err := net.DialTimeout("tcp", e.RemoteAddr.String(), options.Timeout * time.Second)
         if err != nil {
             continue
         }
         defer conn.Close()
-        
-        nd.Data = append(nd.Data, v1.SockTable{
-            LocalAddr: &v1.SockAddr{
+
+        nd.Data = append(nd.Data, cache.SockTable{
+            LocalAddr: cache.SockAddr{
                 IP:    e.LocalAddr.IP,
-                Port:  e.LocalAddr.Port,
                 Name:  hn,
             },
-            RemoteAddr: &v1.SockAddr{
+            RemoteAddr: cache.SockAddr{
                 IP:    e.RemoteAddr.IP,
-                Port:  e.RemoteAddr.Port,
                 Name:  addr,
             },
-            Relation: &v1.Relation{
+            Relation: cache.Relation{
                 Mode:  "tcp",
                 Port:  e.RemoteAddr.Port,
             },
+            Options: options,
         })
     }
 

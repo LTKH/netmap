@@ -1,10 +1,18 @@
 [global]
 urls = ["http://localhost:8082"]
-netstat_mod = true
+
+[cache]
+limit = 1000
+
+[netstat]
+enabled = true
+send = true
+status = ""
 ignore_ports = [22]
-interval = 300
+interval = 60
+command = "traceroute -m 3 -p {{ .port }} {{ .dst_name }}"
 
 [[connections]]
 urls = ["http://localhost:8082"]
-max_resp_time = 5
-traceroute_cmd = "traceroute -m 3 -p {{ .port }} {{ .dst_name }}"
+command = "traceroute -m 3 -p {{ .port }} {{ .dst_name }}"
+interval = 60

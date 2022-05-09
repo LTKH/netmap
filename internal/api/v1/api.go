@@ -2,7 +2,7 @@ package v1
 
 import (
     //"log"
-    "net"
+    //"net"
     //"fmt"
     //"net/http"
     //"time"
@@ -13,6 +13,7 @@ import (
     //"encoding/json"
     //"github.com/ltkh/netmap/internal/client"
     "github.com/ltkh/netmap/internal/config"
+    "github.com/ltkh/netmap/internal/cache"
     "github.com/neo4j/neo4j-go-driver/v4/neo4j"
     "github.com/prometheus/client_golang/prometheus"
 )
@@ -38,30 +39,7 @@ var (
 )
 
 type NetstatData struct {
-    Data           []SockTable            `json:"data"`
-}
-
-// SockTable type represents each line of the /proc/net/[tcp|udp]
-type SockTable struct {
-    Relation       *Relation              `json:"relation"`
-    LocalAddr      *SockAddr              `json:"localAddr"`
-    RemoteAddr     *SockAddr              `json:"remoteAddr"`
-}
-
-type Relation struct {
-    Mode           string                 `json:"mode"`
-    Port           uint16                 `json:"port"`
-    Result         int                    `json:"result"`
-    Response       float64                `json:"response"`
-    Trace          int                    `json:"trace"`
-    Status         string                 `json:"status"`
-}
-
-// SockAddr represents an ip:port pair
-type SockAddr struct {
-    IP             net.IP                 `json:"ip"`
-    Port           uint16                 `json:"port"`
-    Name           string                 `json:"name"`
+    Data           []cache.SockTable      `json:"data"`
 }
 
 type Transaction struct {

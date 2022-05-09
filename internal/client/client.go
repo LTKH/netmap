@@ -51,7 +51,7 @@ func New(h HTTP) HTTP {
     return h
 }
 
-func (h *HTTP) HttpRequest(method string, path string, data []byte) ([]byte, error) {
+func (h *HTTP) HttpRequest(method string, path string, data []byte) ([]byte, int, error) {
     var reqBodyBuffer io.Reader = bytes.NewBuffer(data)
 
     for _, url := range h.URLs {
@@ -110,8 +110,8 @@ func (h *HTTP) HttpRequest(method string, path string, data []byte) ([]byte, err
             continue
         }
 
-        return body, nil
+        return body, resp.StatusCode, nil
     }
 
-    return nil, fmt.Errorf("error failed to complete any request")
+    return nil, 0, fmt.Errorf("error failed to complete any request")
 }
