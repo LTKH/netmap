@@ -4,6 +4,7 @@ import (
     "time"
     "sync"
     "net"
+    "fmt"
 )
 
 // SockAddr represents
@@ -23,24 +24,26 @@ type SockTable struct {
 type Relation struct {
     Mode           string                 `json:"mode"`
     Port           uint16                 `json:"port"`
+    Command        string                 `json:"command,omitempty"`
     Result         int                    `json:"result"`
     Response       float64                `json:"response"`
     Trace          int                    `json:"trace"`
 }
 
 type Options struct {
-    Service        string                 `json:"service"`
-    Status         string                 `json:"status"`
-    Command        string                 `json:"command"`
-    Timeout        time.Duration          `json:"timeout"`
+    Service        string                 `json:"service,omitempty"`
+    Status         string                 `json:"status,omitempty"`
+    Command        string                 `json:"command,omitempty"`
+    Timeout        float64                `json:"timeout"`
     MaxRespTime    float64                `json:"max_resp_time"`
-    ExpireTime     int64                  `json:"expire_time"`
+    ExpireTime     int64                  `json:"-"`
 }
 
 type Records struct {
     sync.RWMutex
     items          map[string]SockTable
     limit          int
+    flush          time.Duration
 }
 
 type Statistics struct {
@@ -48,26 +51,29 @@ type Statistics struct {
     Disabled       int
 }
 
-func NewCacheRecords(limit int) *Records {
+func NewCacheRecords(limit int, flush time.Duration) *Records {
     cache := Records{
         items: make(map[string]SockTable),
         limit: limit,
+        flush: flush,
     }
     return &cache
 }
 
-func (t *Records) Set(key string, val SockTable) bool {
+func (t *Records) Set(key string, val SockTable) error {
     t.Lock()
     defer t.Unlock()
 
     if len(t.items) > t.limit {
-        return false
+        return fmt.Errorf("cache limit exceeded, id: %v", key)
     }
+
     if val.Options.ExpireTime == 0 {
-        val.Options.ExpireTime = time.Now().UTC().Unix() + 900
+        val.Options.ExpireTime = time.Now().UTC().Unix() + int64(t.flush)
     }
+
     t.items[key] = val
-    return true
+    return nil
 }
 
 func (t *Records) Get(key string) (SockTable, bool) {

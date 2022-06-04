@@ -4,6 +4,8 @@ import (
     "os"
     "net"
     "time"
+    //"log"
+    //"encoding/json"
     "fmt"
     "strings"
     "github.com/ltkh/netmap/internal/cache"
@@ -45,14 +47,6 @@ func lookupAddr(ipAddress string) (string, error) {
 func GetSocks(iports []uint16, options cache.Options) (v1.NetstatData, error) {
     var nd v1.NetstatData
 
-    if options.Timeout == 0 {
-        options.Timeout = 5
-    }
-
-    if options.MaxRespTime == 0 {
-        options.MaxRespTime = 10
-    }
-
     // TCP sockets
     socks, err := ns.TCPSocks(ns.NoopFilter)
     if err != nil {
@@ -89,7 +83,7 @@ func GetSocks(iports []uint16, options cache.Options) (v1.NetstatData, error) {
             continue
         }
 
-        conn, err := net.DialTimeout("tcp", e.RemoteAddr.String(), options.Timeout * time.Second)
+        conn, err := net.DialTimeout("tcp", e.RemoteAddr.String(), time.Duration(options.Timeout) * time.Second)
         if err != nil {
             continue
         }

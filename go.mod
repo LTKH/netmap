@@ -8,6 +8,7 @@ require (
 	github.com/naoina/go-stringutil v0.1.0 // indirect
 	github.com/naoina/toml v0.1.1
 	github.com/neo4j/neo4j-go-driver/v4 v4.2.4
+	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.10.0
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 	gopkg.in/yaml.v2 v2.4.0

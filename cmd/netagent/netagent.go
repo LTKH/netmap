@@ -16,6 +16,7 @@ import (
     "bytes"
     "encoding/json"
     "text/template"
+    "github.com/pkg/errors"
     "github.com/naoina/toml"
     "gopkg.in/natefinch/lumberjack.v2"
     "github.com/ltkh/netmap/internal/client"
@@ -34,10 +35,13 @@ type Config struct {
 
 type Global struct {
     URLs           []string                `toml:"urls"`
+    Interval       string                  `toml:"interval"`
+    MaxRespTime    string                  `toml:"max_resp_time"`
 }
 
 type Cache struct {
     Limit          int                     `toml:"limit"`
+    FlushInterval  string                  `toml:"flush_interval"`
 }
 
 type Netstat struct {
@@ -45,10 +49,9 @@ type Netstat struct {
     Send           bool                    `toml:"send"`
     Status         string                  `toml:"status"`
     IgnorePorts    []uint16                `toml:"ignore_ports"`
-    Interval       time.Duration           `toml:"interval"`
+    Interval       string                  `toml:"interval"`
     Command        string                  `toml:"command"`
-    Timeout        time.Duration           `toml:"timeout"`
-    MaxRespTime    float64                 `toml:"max_resp_time"`
+    Timeout        string                  `toml:"timeout"`
 }
 
 type Connection struct {
@@ -58,7 +61,7 @@ type Connection struct {
     BearerToken    string                  `toml:"bearer_token"`
     Headers        map[string]string       `toml:"headers"`
     Command        string                  `toml:"command"`
-    Interval       time.Duration           `toml:"interval"`
+    Interval       string                  `toml:"interval"`
 }
 
 // NetResponse struct
@@ -84,7 +87,7 @@ func (n *NetResponse) TCPGather() (int, float64) {
     // Start Timer
     start := time.Now()
     // Connecting
-    conn, err := net.DialTimeout("tcp", n.Address, n.Timeout * time.Second)
+    conn, err := net.DialTimeout("tcp", n.Address, n.Timeout)
     // Stop timer
     responseTime := time.Since(start).Seconds()
     // Handle error
@@ -102,8 +105,10 @@ func (n *NetResponse) TCPGather() (int, float64) {
     return 0, responseTime
 }
 
-func runCommand(scmd string, timeout time.Duration) ([]byte, error) {
+func runCommand(scmd string, timeout time.Duration) ([]byte, float64, error) {
     log.Printf("[info] running '%s'", scmd)
+    // Start Timer
+    start := time.Now()
     // Create a new context and add a timeout to it
     ctx, cancel := context.WithTimeout(context.Background(), timeout * time.Second)
     defer cancel() // The cancel should be deferred so resources are cleaned up
@@ -119,38 +124,87 @@ func runCommand(scmd string, timeout time.Duration) ([]byte, error) {
     // This time we can simply use Output() to get the result.
     out, err := cmd.Output()
 
+    // Stop timer
+    responseTime := time.Since(start).Seconds()
+
     // Check the context error to see if the timeout was executed
     if ctx.Err() == context.DeadlineExceeded {
-        return nil, fmt.Errorf("command timed out '%s'", scmd)
+        return nil, responseTime, fmt.Errorf("command timed out '%s'", scmd)
     }
 
     // If there's no context error, we know the command completed (or errored).
     if err != nil {
-        return nil, fmt.Errorf("non-zero exit code: %v '%s'", err, scmd)
+        return nil, responseTime, fmt.Errorf("non-zero exit code: %v '%s'", err, scmd)
     }
 
     log.Printf("[info] finished '%s'", scmd)
-    return out, nil
+    return out, responseTime, nil
 }
 
-func newTemplate(def string, tstr string, vars interface{})(bytes.Buffer, error){
-
-    funcMap := template.FuncMap{
-        "hostname":        os.Hostname,
-    }
+func newTemplate(cmd string, tags map[string]string) string {
 
     var tpl bytes.Buffer
 
-    tmpl, err := template.New(def).Funcs(funcMap).Parse(tstr)
+    funcMap := template.FuncMap{
+        "hostname":  os.Hostname,
+    }
+
+    tmpl, err := template.New("new").Funcs(funcMap).Parse(cmd)
     if err != nil {
-        return tpl, err
+        log.Printf("[error] %v", errors.Wrap(err, "parse"))
+        return tpl.String()
     }
 
-    if err = tmpl.Execute(&tpl, &vars); err != nil {
-        return tpl, err
+    if err = tmpl.Execute(&tpl, &tags); err != nil {
+        log.Printf("[error] %v", errors.Wrap(err, "execute"))
+        return tpl.String()
     }
 
-    return tpl, nil
+    return tpl.String()
+}
+
+func runTrace(cmd string, tags map[string]string, conn client.HTTP) {
+
+    var tpl bytes.Buffer
+
+    tmpl, err := template.New("new").Parse(cmd)
+    if err != nil {
+        log.Printf("[error] %v", errors.Wrap(err, "parse"))
+        return
+    }
+
+    if err = tmpl.Execute(&tpl, &tags); err != nil {
+        log.Printf("[error] %v", errors.Wrap(err, "execute"))
+        return
+    }
+
+    out, _, err := runCommand(tpl.String(), 300)
+    if err != nil {
+        log.Printf("[error] %v", err)
+        return
+    }
+
+    var dt []v1.Alert
+    var al v1.Alert
+
+    al.Labels = tags
+    al.Labels["alertname"] = "netmapTraceroute"
+    al.Annotations.Description = string(out)
+
+    dt = append(dt, al)
+
+    jsn, err := json.Marshal(dt)
+    if err != nil {
+        log.Printf("[error] %v", err)
+        return
+    }
+
+    _, _, err = conn.HttpRequest("POST", "/api/v1/netmap/webhook", jsn)
+    if err != nil {
+        log.Printf("[error] %v", err)
+    }
+
+    return
 }
 
 func main() {
@@ -194,11 +248,21 @@ func main() {
 
     log.Print("[info] netmap started -_-")
 
+    //Set CacheLimit
     if cfg.Cache.Limit == 0 {
         cfg.Cache.Limit = 1000
     }
 
-    cacheRecords := cache.NewCacheRecords(cfg.Cache.Limit)
+    // Set CacheFlushInterval
+    if cfg.Cache.FlushInterval == "" {
+        cfg.Cache.FlushInterval = "24h"
+    }
+    flushInterval, _ := time.ParseDuration(cfg.Cache.FlushInterval)
+    if flushInterval == 0 {
+        log.Fatal("[error] setting cache flush interval: invalid duration")
+    }
+
+    cacheRecords := cache.NewCacheRecords(cfg.Cache.Limit, flushInterval)
     run := true
     
     // Program signal processing
@@ -222,11 +286,25 @@ func main() {
         }
     }()
 
+    // Set Global Interval
+    if cfg.Global.Interval == "" {
+        cfg.Global.Interval = "60s"
+    }
+    globalInterval, _ := time.ParseDuration(cfg.Global.Interval)
+    if globalInterval == 0 {
+        log.Fatal("[error] setting global interval: invalid duration")
+    }
+
     // Get connections
     for _, cn := range cfg.Connections {
 
-        if cn.Interval == 0 {
-            cn.Interval = 60
+        // Set Interval
+        if cn.Interval == "" {
+            cn.Interval = cfg.Global.Interval
+        }
+        cnInterval, _ := time.ParseDuration(cn.Interval)
+        if cnInterval == 0 {
+            log.Fatal("[error] setting connection interval: invalid duration")
         }
 
         go func(cn Connection) {
@@ -257,11 +335,12 @@ func main() {
                             } else {
                                 for _, nr := range nrs.Data {
                                     id := fmt.Sprintf("%v:%v:%v:%v", nr.LocalAddr.IP, nr.RemoteAddr.IP, nr.Relation.Mode, nr.Relation.Port)
+                                    nr.Options.ExpireTime = 0
                                     if nr.Options.Command == "" {
                                         nr.Options.Command = cn.Command
                                     }
-                                    if ok := cacheRecords.Set(id, nr); !ok {
-                                        log.Printf("[error] %v - cache limit exceeded", id)
+                                    if err := cacheRecords.Set(id, nr); err != nil {
+                                        log.Printf("[error] %v", err)
                                     }
                                 }
                             }
@@ -269,7 +348,7 @@ func main() {
                     }
                 }
 
-                time.Sleep(time.Duration(cn.Interval) * time.Second)
+                time.Sleep(cnInterval)
             }
         }(cn)
     }
@@ -281,18 +360,41 @@ func main() {
             return
         }
 
-        if cfg.Netstat.Interval == 0 {
-            cfg.Netstat.Interval = 300
+        // Set Timeout
+        if cfg.Netstat.Timeout == "" {
+            cfg.Netstat.Timeout = "10s"
+        }
+        netstatTimeout, _ := time.ParseDuration(cfg.Netstat.Timeout)
+        if netstatTimeout == 0 {
+            log.Fatal("[error] setting netstat timeout: invalid duration")
+        }
+
+        // Set Interval
+        if cfg.Netstat.Interval == "" {
+            cfg.Netstat.Interval = "300s"
+        }
+        netstatInterval, _ := time.ParseDuration(cfg.Netstat.Interval)
+        if netstatInterval == 0 {
+            log.Fatal("[error] setting netstat interval: invalid duration")
+        }
+
+        // Set MaxRespTime
+        if cfg.Global.MaxRespTime == "" {
+            cfg.Global.MaxRespTime = "10s"
+        }
+        maxRespTime, _ := time.ParseDuration(cfg.Global.MaxRespTime)
+        if maxRespTime == 0 {
+            log.Fatal("[error] setting global max_resp_time: invalid duration")
         }
 
         for {
             options := cache.Options {
                 Status:      cfg.Netstat.Status,
                 Command:     cfg.Netstat.Command,
-                Timeout:     cfg.Netstat.Timeout,
-                MaxRespTime: cfg.Netstat.MaxRespTime,
-                ExpireTime:  time.Now().UTC().Unix() + int64(cfg.Netstat.Interval * 5),
+                Timeout:     netstatTimeout.Seconds(),
+                MaxRespTime: maxRespTime.Seconds(),
             }
+
             nrs, err := netstat.GetSocks(cfg.Netstat.IgnorePorts, options)
             if err != nil {
                 log.Printf("[error] %v", err)
@@ -301,11 +403,16 @@ func main() {
 
                 for _, nr := range nrs.Data {
                     id := fmt.Sprintf("%v:%v:%v:%v", nr.LocalAddr.IP, nr.RemoteAddr.IP, nr.Relation.Mode, nr.Relation.Port)
-                    _, ok := cacheRecords.Get(id)
+                    val, ok := cacheRecords.Get(id)
                     if !ok {
                         nrr.Data = append(nrr.Data, nr)
-                        if ok := cacheRecords.Set(id, nr); !ok {
-                            log.Printf("[error] %v - cache limit exceeded", id)
+                        if err := cacheRecords.Set(id, nr); err != nil {
+                            log.Printf("[error] %v", err)
+                        }
+                    } else {
+                        val.Options.ExpireTime = 0
+                        if err := cacheRecords.Set(id, val); err != nil {
+                            log.Printf("[error] %v", err)
                         }
                     }
                 }
@@ -326,7 +433,7 @@ func main() {
                 }
             }
 
-            time.Sleep(time.Duration(cfg.Netstat.Interval) * time.Second)
+            time.Sleep(netstatInterval)
         }
     }()
 
@@ -366,101 +473,84 @@ func main() {
                 go func(nr cache.SockTable) {
                     defer wg.Done()
 
+                    result := 0
+                    response := float64(0)
+                    tags := map[string]string{
+                        "src_name":   nr.LocalAddr.Name,
+                        "src_ip":     nr.LocalAddr.IP.String(),
+                        "dst_name":   nr.RemoteAddr.Name,
+                        "dst_ip":     nr.RemoteAddr.IP.String(),
+                        "port":       fmt.Sprintf("%v", nr.Relation.Port),
+                        "mode":       nr.Relation.Mode,
+                    }
+
                     // Gather data
                     if nr.Relation.Mode == "tcp" {
     
                         tcp := &NetResponse{
                             Address:         fmt.Sprintf("%v:%v", nr.RemoteAddr.IP.String(), nr.Relation.Port),
-                            Timeout:         nr.Options.Timeout,
+                            Timeout:         time.Duration(nr.Options.Timeout) * time.Second,
                             Protocol:        nr.Relation.Mode,
                         }
     
-                        result, response := tcp.TCPGather()
-
-                        if nr.Options.MaxRespTime == 0 {
-                            nr.Options.MaxRespTime = 10
-                        }
+                        result, response = tcp.TCPGather()
     
                         if (result == 1 || response > nr.Options.MaxRespTime) {
                             if nr.Relation.Trace == 0 && nr.Options.Command != "" {
                                 nr.Relation.Trace = 1
-    
-                                go func(address string){
-
-                                    tags := map[string]string{
-                                        "src_name":   nr.LocalAddr.Name,
-                                        "src_ip":     nr.LocalAddr.IP.String(),
-                                        "dst_name":   nr.RemoteAddr.Name,
-                                        "dst_ip":     nr.RemoteAddr.IP.String(),
-                                        "port":       fmt.Sprintf("%v", nr.Relation.Port),
-                                        "mode":       nr.Relation.Mode,
-                                    }
-    
-                                    tmpl, err := newTemplate(address, nr.Options.Command, tags)
-                                    if err != nil {
-                                        log.Printf("[error] %v", err)
-                                        return
-                                    }
-    
-                                    out, err := runCommand(tmpl.String(), 600)
-                                    if err != nil {
-                                        log.Printf("[error] %v", err)
-                                        return
-                                    }
-    
-                                    var dt []v1.Alert
-                                    var al v1.Alert
-    
-                                    al.Labels = tags
-                                    al.Labels["alertname"] = "netmapTraceroute"
-                                    al.Annotations.Description = string(out)
-    
-                                    dt = append(dt, al)
-    
-                                    jsn, err := json.Marshal(dt)
-                                    if err != nil {
-                                        log.Printf("[error] %v", err)
-                                        return
-                                    }
-
-                                    _, _, err = conn.HttpRequest("POST", "/api/v1/netmap/webhook", jsn)
-                                    if err != nil {
-                                        log.Printf("[error] %v", err)
-                                    }
-
-                                }(tcp.Address)
+                                go runTrace(nr.Options.Command, tags, conn)
                             }
                         } else {
                             nr.Relation.Trace = 0
                         }
+                    }
 
+                    if nr.Relation.Mode == "cmd" {
+
+                        cmd := newTemplate(nr.Relation.Command, tags)
+
+                        if cmd != "" {
+                            _, response, err = runCommand(cmd, time.Duration(nr.Options.Timeout) * time.Second)
+                            if err != nil {
+                                result = 1
+                                if nr.Relation.Trace == 0 && nr.Options.Command != "" {
+                                    nr.Relation.Trace = 1
+                                    go runTrace(nr.Options.Command, tags, conn)
+                                }
+                            } else {
+                                nr.Relation.Trace = 0
+                            }
+                        }
+                    }
+
+                    if nr.Relation.Result != result {
+                        nr.Relation.Result = result
+                        nrr.Data = append(nrr.Data, nr)
+                    }
+
+                    if nr.Relation.Response != response {
                         nr.Relation.Response = response
-    
-                        if nr.Relation.Result != result {
-                            nr.Relation.Result = result
-                            nrr.Data = append(nrr.Data, nr)
-                        }
+                    }
 
-                        id := fmt.Sprintf("%v:%v:%v:%v", nr.LocalAddr.IP, nr.RemoteAddr.IP, nr.Relation.Mode, nr.Relation.Port)
-                        if ok := cacheRecords.Set(id, nr); !ok {
-                            log.Printf("[error] %v - cache limit exceeded", id)
-                        }
-    
-                        // Adding metrics
-                        if *plugin == "telegraf" {
-                            fmt.Printf(
-                                "netmap,src_name=%s,src_ip=%s,dst_name=%s,dst_ip=%s,service=%s,port=%d,mode=%s result_code=%d,response_time=%f\n", 
-                                nr.LocalAddr.Name,
-                                nr.LocalAddr.IP,
-                                nr.RemoteAddr.Name,
-                                nr.RemoteAddr.IP,
-                                nr.Options.Service,
-                                nr.Relation.Port,
-                                nr.Relation.Mode,
-                                nr.Relation.Result,
-                                nr.Relation.Response,
-                            )
-                        }
+                    id := fmt.Sprintf("%v:%v:%v:%v", nr.LocalAddr.IP, nr.RemoteAddr.IP, nr.Relation.Mode, nr.Relation.Port)
+                    if err := cacheRecords.Set(id, nr); err != nil {
+                        log.Printf("[error] %v", err)
+                    }
+
+                    // Adding metrics
+                    if *plugin == "telegraf" {
+                        fmt.Printf(
+                            "netmap,src_name=%s,src_ip=%s,dst_name=%s,dst_ip=%s,service=%s,port=%d,mode=%s result_code=%d,response_time=%f\n", 
+                            nr.LocalAddr.Name,
+                            nr.LocalAddr.IP,
+                            nr.RemoteAddr.Name,
+                            nr.RemoteAddr.IP,
+                            nr.Options.Service,
+                            nr.Relation.Port,
+                            nr.Relation.Mode,
+                            nr.Relation.Result,
+                            nr.Relation.Response,
+                        )
                     }
                 }(nr)
             }
@@ -490,7 +580,7 @@ func main() {
                 )
             }
 
-            time.Sleep(time.Duration(60) * time.Second)
+            time.Sleep(globalInterval)
         }
     }()
 
