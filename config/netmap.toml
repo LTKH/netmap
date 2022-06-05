@@ -5,15 +5,15 @@ interval = "60s"
 
 [cache]
 limit = 1000
-flush_interval = "24h"
+flush_interval = "5m"
 
 [netstat]
 enabled = true
 send = true
 status = ""
-ignore_ports = [22,1251]
+ignore_ports = [22,1521]
 timeout = "10s"
-interval = "60s"
+interval = "900s"
 command = "traceroute -m 3 -p {{ .port }} {{ .dst_name }}"
 
 [[connections]]

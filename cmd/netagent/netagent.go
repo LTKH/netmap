@@ -77,9 +77,7 @@ type DataSend struct {
     Output         []string                `json:"output"`
 }
 
-// TCPGather will execute if there are TCP tests defined in the configuration.
-// It will return a map[string]interface{} for fields and a map[string]string for tags
-func (n *NetResponse) TCPGather() (int, float64) {
+func (n *NetResponse) DialTimeout(network string) (int, float64) {
     // Set default values
     if n.Timeout == 0 {
         n.Timeout = 5 
@@ -87,7 +85,7 @@ func (n *NetResponse) TCPGather() (int, float64) {
     // Start Timer
     start := time.Now()
     // Connecting
-    conn, err := net.DialTimeout("tcp", n.Address, n.Timeout)
+    conn, err := net.DialTimeout(network, n.Address, n.Timeout)
     // Stop timer
     responseTime := time.Since(start).Seconds()
     // Handle error
@@ -484,35 +482,18 @@ func main() {
                         "mode":       nr.Relation.Mode,
                     }
 
-                    // Gather data
-                    if nr.Relation.Mode == "tcp" {
-    
-                        tcp := &NetResponse{
-                            Address:         fmt.Sprintf("%v:%v", nr.RemoteAddr.IP.String(), nr.Relation.Port),
-                            Timeout:         time.Duration(nr.Options.Timeout) * time.Second,
-                            Protocol:        nr.Relation.Mode,
-                        }
-    
-                        result, response = tcp.TCPGather()
-    
-                        if (result == 1 || response > nr.Options.MaxRespTime) {
-                            if nr.Relation.Trace == 0 && nr.Options.Command != "" {
-                                nr.Relation.Trace = 1
-                                go runTrace(nr.Options.Command, tags, conn)
+                    switch nr.Relation.Mode {
+
+                        case "tcp","udp":
+                            net := &NetResponse{
+                                Address:         fmt.Sprintf("%v:%v", nr.RemoteAddr.IP.String(), nr.Relation.Port),
+                                Timeout:         time.Duration(nr.Options.Timeout) * time.Second,
+                                Protocol:        nr.Relation.Mode,
                             }
-                        } else {
-                            nr.Relation.Trace = 0
-                        }
-                    }
-
-                    if nr.Relation.Mode == "cmd" {
-
-                        cmd := newTemplate(nr.Relation.Command, tags)
-
-                        if cmd != "" {
-                            _, response, err = runCommand(cmd, time.Duration(nr.Options.Timeout) * time.Second)
-                            if err != nil {
-                                result = 1
+        
+                            result, response = net.DialTimeout(nr.Relation.Mode)
+        
+                            if (result == 1 || response > nr.Options.MaxRespTime) {
                                 if nr.Relation.Trace == 0 && nr.Options.Command != "" {
                                     nr.Relation.Trace = 1
                                     go runTrace(nr.Options.Command, tags, conn)
@@ -520,7 +501,24 @@ func main() {
                             } else {
                                 nr.Relation.Trace = 0
                             }
-                        }
+
+                        case "cmd":
+                            cmd := newTemplate(nr.Relation.Command, tags)
+
+                            if cmd != "" {
+                                _, response, err = runCommand(cmd, time.Duration(nr.Options.Timeout) * time.Second)
+                                if err != nil {
+                                    result = 1
+                                    if nr.Relation.Trace == 0 && nr.Options.Command != "" {
+                                        nr.Relation.Trace = 1
+                                        go runTrace(nr.Options.Command, tags, conn)
+                                    }
+                                } else {
+                                    nr.Relation.Trace = 0
+                                }
+                            }
+                        default:
+                            return
                     }
 
                     if nr.Relation.Result != result {
