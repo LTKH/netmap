@@ -348,9 +348,6 @@ func main() {
 
             config := client.HttpConfig{
                 URLs: randURLs(cn.URLs),
-                Headers: map[string]string{
-                    "Content-Type": "application/json",
-                },
                 ContentEncoding: cn.ContentEncoding,
             }
 
@@ -513,10 +510,7 @@ func main() {
         }
 
         config := client.HttpConfig{
-            URLs:            randURLs(cfg.Netstat.URLs), 
-            Headers: map[string]string{
-                "Content-Type": "application/json",
-            },
+            URLs:            randURLs(cfg.Netstat.URLs),
             ContentEncoding: cfg.Netstat.ContentEncoding,
         }
 

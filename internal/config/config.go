@@ -15,7 +15,6 @@ type Config struct {
 }
 
 type Global struct {
-	Listen           string             `yaml:"listen_address"`
 	CertFile         string             `yaml:"cert_file"`
 	CertKey          string             `yaml:"cert_key"`
 }

@@ -58,12 +58,14 @@ func (h *HttpClient) WriteRecords(cfg HttpConfig, path string, data []byte) erro
             continue
         }
 
-        for name, value := range cfg.Headers {
-            req.Header.Set(name, value)
-        }
-        
+        req.Header.Set("Content-Type", "application/json")
+
         if cfg.ContentEncoding == "gzip" {
             req.Header.Set("Content-Encoding", "gzip")
+        }
+
+        for name, value := range cfg.Headers {
+            req.Header.Set(name, value)
         }
 
         resp, err := h.client.Do(req)

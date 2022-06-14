@@ -168,11 +168,6 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
     }
 
     if r.Method == "DELETE" && r.URL.Path == "/api/v1/netmap/records" {
-
-        if r.Header.Get("Cluster-ID") == clusterID {
-            w.WriteHeader(204)
-            return
-        }
         
         keys, ok := r.URL.Query()["keys[]"]
         if !ok {
@@ -259,17 +254,18 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
                 }
         }
 
-        if len(api.Conf.Cluster.URLs) > 0 {
+        if len(api.Conf.Cluster.URLs) > 0 && r.Header.Get("Cluster-ID") == "" {
+
             for _, url := range api.Conf.Cluster.URLs {
                 config := client.HttpConfig{
                     URLs: []string{url},
                     Headers: map[string]string{
-                        "Content-Type": "application/json",
                         "Cluster-ID": clusterID,
                     },
                 }
                 go httpClient.WriteRecords(config, r.URL.Path, body)
             }
+
         }
         
         w.WriteHeader(204)
@@ -316,9 +312,6 @@ func (api *Api) ApiWebhook(w http.ResponseWriter, r *http.Request) {
             for _, url := range api.Conf.Notifier.URLs {
                 config := client.HttpConfig{
                     URLs: []string{url},
-                    Headers: map[string]string{
-                        "Content-Type": "application/json",
-                    },
                 }
                 go httpClient.WriteRecords(config, "/api/v1/alerts", body)
             }
@@ -354,17 +347,19 @@ func (api *Api) ApiGetClusterRecords() {
             if err != nil {
                 continue
             }
+
             if err := json.Unmarshal(body, &nrs); err != nil {
                 log.Printf("[error] %v - %s", err, "/api/v1/netmap/records")
                 continue
             } 
+
             for _, nr := range nrs.Data {
                 id := cache.GetID(&nr)
                 val, ok := items[id]
                 if ok && val.Options.ActiveTime >= nr.Options.ActiveTime {
                     continue
                 }
-                if err := api.CacheRecords.Set(id, nr, false); err != nil {
+                if err := api.CacheRecords.Set(id, nr, true); err != nil {
                     log.Printf("[error] %v - %s", err, "/api/v1/netmap/records")
                 }
             }
