@@ -9,9 +9,12 @@ import (
     "fmt"
     "strings"
     "github.com/ltkh/netmap/internal/cache"
-    "github.com/ltkh/netmap/internal/api/v1"
     ns "github.com/cakturk/go-netstat/netstat"
 )
+
+type NetstatData struct {
+    Data           []cache.SockTable      `json:"data"`
+}
 
 func Hostname() (string, error) {
     hostname, err := os.Hostname()
@@ -44,8 +47,8 @@ func lookupAddr(ipAddress string) (string, error) {
     return strings.Trim(name[0], "."), nil
 }
 
-func GetSocks(iports []uint16, options cache.Options) (v1.NetstatData, error) {
-    var nd v1.NetstatData
+func GetSocks(iports []uint16, options cache.Options) (NetstatData, error) {
+    var nd NetstatData
     
     // Get hostname
     name, err := Hostname()
@@ -99,7 +102,7 @@ func GetSocks(iports []uint16, options cache.Options) (v1.NetstatData, error) {
                 continue
             }
 
-            conn, err := net.DialTimeout(mode, e.RemoteAddr.String(), time.Duration(options.Timeout) * time.Second)
+            conn, err := net.DialTimeout(mode, e.RemoteAddr.String(), 3 * time.Second)
             if err != nil {
                 continue
             }

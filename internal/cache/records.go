@@ -5,6 +5,9 @@ import (
     "sync"
     "net"
     "fmt"
+    "io"
+    "crypto/sha1"
+    "encoding/hex"
 )
 
 // SockAddr represents
@@ -15,6 +18,7 @@ type SockAddr struct {
 
 // SockTable type represents each line of the /proc/net/[tcp|udp]
 type SockTable struct {
+    Id             string                 `json:"id,omitempty"`
     LocalAddr      SockAddr               `json:"localAddr"`
     RemoteAddr     SockAddr               `json:"remoteAddr"`
     Relation       Relation               `json:"relation"`
@@ -36,7 +40,7 @@ type Options struct {
     Command        string                 `json:"command,omitempty"`
     Timeout        float64                `json:"timeout"`
     MaxRespTime    float64                `json:"max_resp_time"`
-    ExpireTime     int64                  `json:"-"`
+    ActiveTime     int64                  `json:"active_time"`
 }
 
 type Records struct {
@@ -51,6 +55,16 @@ type Statistics struct {
     Disabled       int
 }
 
+func GetHash(text string) string {
+    h := sha1.New()
+    io.WriteString(h, text)
+    return hex.EncodeToString(h.Sum(nil))
+}
+
+func GetID(i *SockTable) string {
+    return GetHash(fmt.Sprintf("%v:%v:%v:%v:%v:%v", i.LocalAddr.IP, i.LocalAddr.Name, i.RemoteAddr.IP, i.RemoteAddr.Name, i.Relation.Mode, i.Relation.Port))
+}
+
 func NewCacheRecords(limit int, flush time.Duration) *Records {
     cache := Records{
         items: make(map[string]SockTable),
@@ -60,16 +74,17 @@ func NewCacheRecords(limit int, flush time.Duration) *Records {
     return &cache
 }
 
-func (t *Records) Set(key string, val SockTable) error {
+func (t *Records) Set(key string, val SockTable, active bool) error {
     t.Lock()
     defer t.Unlock()
 
-    if len(t.items) > t.limit {
+    _, found := t.items[key]
+    if !found && len(t.items) >= t.limit {
         return fmt.Errorf("cache limit exceeded, id: %v", key)
     }
 
-    if val.Options.ExpireTime == 0 {
-        val.Options.ExpireTime = time.Now().UTC().Unix() + int64(t.flush)
+    if active {
+        val.Options.ActiveTime = time.Now().UTC().Unix()
     }
 
     t.items[key] = val
@@ -86,6 +101,15 @@ func (t *Records) Get(key string) (SockTable, bool) {
         return val, false
     }
     return val, true
+}
+
+func (t *Records) Del(key string) bool {
+    t.Lock()
+    defer t.Unlock()
+
+    delete(t.items, key)
+
+    return true
 }
 
 func (t *Records) Items() map[string]SockTable {
@@ -105,25 +129,10 @@ func (t *Records) DelExpiredItems() bool {
     defer t.Unlock()
 
     for k, v := range t.items {
-        if time.Now().UTC().Unix() > v.Options.ExpireTime {
+        if float64(v.Options.ActiveTime) + float64(t.flush / time.Second) < float64(time.Now().UTC().Unix()) {
             delete(t.items, k)
         }
     }
 
     return true
-}
-
-func (t *Records) GetStatistics() Statistics {
-    t.RLock()
-    defer t.RUnlock()
-
-    var stat Statistics
-    for _, nr := range t.items {
-        stat.Total = stat.Total + 1
-        if nr.Options.Status != "" {
-            stat.Disabled = stat.Disabled +1
-        }
-    }
-    
-    return stat
 }

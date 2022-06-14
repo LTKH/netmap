@@ -1,24 +1,27 @@
 package v1
 
 import (
-    //"log"
-    //"net"
-    //"fmt"
-    //"net/http"
-    //"time"
-    "reflect"
-    //"strconv"
-    //"strings"
-    //"io/ioutil"
-    //"encoding/json"
-    //"github.com/ltkh/netmap/internal/client"
+    "log"
+    "fmt"
+    "net/http"
+    "time"
+    "errors"
+    "compress/gzip"
+    "io"
+    "bytes"
+    "regexp"
+    "io/ioutil"
+    "encoding/json"
+    "github.com/prometheus/client_golang/prometheus"
     "github.com/ltkh/netmap/internal/config"
     "github.com/ltkh/netmap/internal/cache"
-    "github.com/neo4j/neo4j-go-driver/v4/neo4j"
-    "github.com/prometheus/client_golang/prometheus"
+    "github.com/ltkh/netmap/internal/client"
 )
 
 var (
+    httpClient = client.NewHttpClient()
+    clusterID = getClusterID()
+
     resultCode = prometheus.NewGaugeVec(
         prometheus.GaugeOpts{
             Namespace: "netmap",
@@ -38,46 +41,32 @@ var (
     )
 )
 
+type Api struct {
+    Conf         *config.Config
+    CacheRecords *cache.Records
+}
+
+type Resp struct {
+    Status       string                    `json:"status"`
+    Error        string                    `json:"error,omitempty"`
+    Warnings     []string                  `json:"warnings,omitempty"`
+    Data         interface{}               `json:"data"`
+}
+
 type NetstatData struct {
-    Data           []cache.SockTable      `json:"data"`
+    Data         []cache.SockTable         `json:"data"`
 }
 
-type Transaction struct {
-    Cypher         string 
-    Params         map[string]interface{}
+func getClusterID() string {
+    return cache.GetHash(fmt.Sprintf("%v", time.Now().UnixNano()))
 }
 
-type Response struct {
-    Status         string                 `json:"status"`
-    Error          string                 `json:"error,omitempty"`
-    Warnings       []string               `json:"warnings,omitempty"`
-    Data           interface{}            `json:"data"`
-}
-
-type ApiRecords struct {
-    Databases      []*config.Database
-}
-
-type ApiNetstat struct {
-    Databases      []*config.Database
-}
-
-type ApiStatus struct {
-    Databases      []*config.Database
-}
-
-type ApiWebhook struct {
-    Alerting       *config.Alerting
-}
-
-type Alert struct {
-    Status         string                 `json:"status,omitempty"`
-    Labels         map[string]string      `json:"labels"`
-    Annotations    Annotations            `json:"annotations"`
-}
-
-type Annotations struct {
-    Description    string                 `json:"description"`
+func encodeResp(resp *Resp) []byte {
+    jsn, err := json.Marshal(resp)
+    if err != nil {
+        return encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)})
+    }
+    return jsn
 }
 
 func MonRegister(){
@@ -85,315 +74,300 @@ func MonRegister(){
     prometheus.MustRegister(responseTime)
 }
 
-func runTransaction(driver neo4j.Driver, transact Transaction) (interface{}, error) {
-    session := driver.NewSession(neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
-    defer session.Close()
+func New(cfg *config.Config) (*Api, error) {
 
-    result, err := session.WriteTransaction(func(transaction neo4j.Transaction) (interface{}, error) {
-        var arr []interface{}
+    var api Api
 
-        result, err := transaction.Run(transact.Cypher, transact.Params)
-        if err != nil {
-            return nil, err
-        }
-
-        keys := [3]string{"localAddr","relation","remoteAddr"}
-        for result.Next() {
-            a := map[string]interface{}{}
-            for k, _ := range result.Record().Values {
-                r := reflect.ValueOf(result.Record().Values[k])
-                f := reflect.Indirect(r).FieldByName("Props")
-                a[keys[k]] = f.Interface()
-            }
-            arr = append(arr, a)
-		}
-
-        return arr, nil
-    })
-    if err != nil {
-        return nil, err
+    // Set CacheLimit
+    if cfg.Cache.Limit == 0 {
+        cfg.Cache.Limit = 1000000
     }
 
-    return result, nil
+    // Set CacheFlushInterval
+    if cfg.Cache.FlushInterval == "" {
+        cfg.Cache.FlushInterval = "24h"
+    }
+    flushInterval, _ := time.ParseDuration(cfg.Cache.FlushInterval)
+    if flushInterval == 0 {
+        return &api, errors.New("setting cache flush interval: invalid duration")
+    }
+
+    api.Conf = cfg
+    api.CacheRecords = cache.NewCacheRecords(cfg.Cache.Limit, flushInterval)
+
+    return &api, nil
 }
 
-/*
-func (a *ApiWebhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-    body, err := ioutil.ReadAll(r.Body)
-    if err != nil {
-        log.Printf("[error] %v - %s", err, r.URL.Path)
-        w.WriteHeader(400)
-        w.Write([]byte(err.Error()))
-        return
-    }
+func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
+    w.Header().Set("Content-Type", "application/json")
 
-    for _, m := range a.Alerting.Alertmanagers {
-        for _, s := range m.StaticConfigs {
-            for _, t := range s.Targets {
-                go func() {
-                    //new client
-                    conn := client.New(client.HTTP{
-                        URLs:        []string{"http://"+t},
-                    })
-                    _, err = conn.HttpRequest("POST", "/api/v1/alerts", body)
-                    if err != nil {
-                        log.Printf("[error] %v", err)
-                    }
-                }()
-            }
-        }
-    }
-    
-    w.WriteHeader(204)
-}
-
-func (a *ApiRecords) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-
-    var condit []string 
-    params := map[string]interface{}{}
-
-    for k, v := range r.URL.Query() {
-        switch k {
-            case "result":
-                result, err := strconv.Atoi(v[0])
-                if err != nil {
-                    log.Printf("[error] %v", err)
-                    w.WriteHeader(500)
-                }
-                params[k] = result
-                condit = append(condit, "r.result = $result")
-            case "port":
-                port, err := strconv.Atoi(v[0])
-                if err != nil {
-                    log.Printf("[error] %v", err)
-                    w.WriteHeader(500)
-                }
-                params[k] = port
-                condit = append(condit, "r.port = $port")
-            case "mode":
-                params[k] = v[0]
-                condit = append(condit, "r.mode = $mode")
-            case "src_name":
-                params[k] = v[0]
-                condit = append(condit, "a.name =~ $src_name")
-            case "src_ip":
-                params[k] = v[0]
-                condit = append(condit, "a.ip =~ $src_ip")
-            case "dst_name":
-                params[k] = v[0]
-                condit = append(condit, "b.name =~ $dst_name")
-            case "dst_ip":
-                params[k] = v[0]
-                condit = append(condit, "b.ip =~ $dst_ip")
-        }
-    }
-
-    for _, db := range a.Databases {
-
-        driver, err := neo4j.NewDriver(db.Uri, neo4j.BasicAuth(db.UserName, db.Password, ""))
-        if err != nil {
-            log.Printf("[error] %v", err)
-            w.WriteHeader(500)
-            return
-        }
-        defer driver.Close()
-
-        cypher := "MATCH (a)-[r:relation]->(b) RETURN a,r,b LIMIT 1000";
-        if len(condit) > 0 {
-            cypher = "MATCH (a)-[r:relation]->(b) WHERE "+strings.Join(condit, " AND ")+" RETURN a,r,b LIMIT 1000"
-        }
-        arr, err := runTransaction(driver, Transaction{
-            Cypher: cypher,
-            Params: params,
-        })
-        if err != nil {
-            log.Printf("[error] %v", err)
-            w.WriteHeader(500)
-            return
-        }
-
-        var resp Response
-        resp.Status = "success"
-        resp.Data = arr
-        jsn, err := json.Marshal(resp)
-        if err != nil {
-            log.Printf("[error] %v", err)
-            w.WriteHeader(500)
-            return
-        }
-
-        w.Header().Set("Content-Type", "application/json")
+    if r.Header.Get("Cluster-ID") == clusterID {
         w.WriteHeader(200)
-        w.Write([]byte(jsn))
-        return
-
-    }
-
-    w.WriteHeader(500)
-}
-
-func (a *ApiNetstat) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-    var t NetstatData
-
-    body, err := ioutil.ReadAll(r.Body)
-    if err != nil {
-        log.Printf("[error] %v - %s", err, r.URL.Path)
-        w.WriteHeader(400)
-        w.Write([]byte(err.Error()))
+        w.Write(encodeResp(&Resp{Status:"success", Data:make([]int, 0)}))
         return
     }
 
-    if err := json.Unmarshal(body, &t); err != nil {
-        log.Printf("[error] %v - %s", err, r.URL.Path)
-        w.WriteHeader(400)
-        w.Write([]byte(err.Error()))
-        return
-    }
+    if r.Method == "GET" && r.URL.Path == "/api/v1/netmap/records" {
 
-    for _, db := range a.Databases {
+        var records []cache.SockTable
 
-        go func(t NetstatData, db *config.Database){
+        strArgs := make(map[string]string)
 
-            group := "test"
+        for k, v := range r.URL.Query() {
+            switch k {
+                case "src_name":
+                    strArgs[k] = v[0]
+                default:
+                    w.WriteHeader(400)
+                    w.Write(encodeResp(&Resp{Status:"error", Error:fmt.Sprintf("executing query: invalid parameter: %v", k), Data:make([]int, 0)}))
+                    return
+            }
+        }
 
-            driver, err := neo4j.NewDriver(db.Uri, neo4j.BasicAuth(db.UserName, db.Password, ""))
-            if err != nil {
-                log.Printf("[error] %v", err)
+        for key, item := range api.CacheRecords.Items() {
+            if strArgs["src_name"] != "" && strArgs["src_name"] != item.LocalAddr.Name {
+                continue
+            }
+            item.Id = key
+            records = append(records, item)
+        }
+
+        if len(records) == 0 {
+            records = make([]cache.SockTable, 0)
+        }
+
+        var buf bytes.Buffer
+
+        data := encodeResp(&Resp{Status:"success", Data:records})
+
+        // Send compressed data if needed
+        matched, _ := regexp.MatchString(`gzip`, r.Header.Get("Accept-Encoding"))
+        if matched {
+            writer := gzip.NewWriter(&buf)
+            if _, err := writer.Write(data); err != nil {
+                log.Printf("[error] %v - %s", err, r.URL.Path)
+                w.WriteHeader(500)
+                w.Write(encodeResp(&Resp{Status:"error", Error:"unable to compress data", Data:make([]int, 0)}))
                 return
             }
-            defer driver.Close()
-
-            for _, v := range t.Data {
-
-                _, err := runTransaction(driver, Transaction{
-                    Cypher: fmt.Sprintf("MERGE (host:%s { name: $name, ip: $ip })", group),
-                    Params: map[string]interface{}{
-                        "name": v.LocalAddr.Name,
-                        "ip": v.LocalAddr.IP.String(),
-                    },
-                })
-                if err != nil {
-                    log.Printf("[error] %v", err)
-                    continue
-                }
-
-                _, err = runTransaction(driver, Transaction{
-                    Cypher: fmt.Sprintf("MERGE (host:%s { name: $name, ip: $ip })", group),
-                    Params: map[string]interface{}{
-                        "name": v.RemoteAddr.Name,
-                        "ip": v.RemoteAddr.IP.String(),
-                    },
-                })
-                if err != nil {
-                    log.Printf("[error] %v", err)
-                    continue
-                }
-
-                _, err = runTransaction(driver, Transaction{
-                    Cypher: fmt.Sprintf("MATCH (a:%s { name: $src_name }),(b { name: $dst_name }) MERGE (a)-[r:relation { mode: $mode, port: $port }]->(b)", group),
-                    Params: map[string]interface{}{
-                        "src_name":   v.LocalAddr.Name,
-                        "dst_name":   v.RemoteAddr.Name,
-                        "mode":       v.Relation.Mode,
-                        "port":       v.Relation.Port,
-                    },
-                })
-                if err != nil {
-                    log.Printf("[error] %v", err)
-                    continue
-                }
-
-                _, err = runTransaction(driver, Transaction{
-                    Cypher: fmt.Sprintf("MATCH (a:%s { name: $src_name })-[r:relation { port: $port, mode: $mode }]->(b { name: $dst_name }) SET r.result = 0, r.response = 0.0, r.trace = 0, r.update = $update", group),
-                    Params: map[string]interface{}{
-                        "src_name":   v.LocalAddr.Name,
-                        "dst_name":   v.RemoteAddr.Name,
-                        "mode":       v.Relation.Mode,
-                        "port":       v.Relation.Port,
-                        "update":     time.Now().UTC().Unix(),
-                    },
-                })
-                if err != nil {
-                    log.Printf("[error] %v", err)
-                    continue
-                }
-
-            }
-        }(t, db)
-    }
-
-    w.WriteHeader(204)
-}
-
-func (a *ApiStatus) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-    var t NetstatData
-
-    body, err := ioutil.ReadAll(r.Body)
-    if err != nil {
-        log.Printf("[error] %v - %s", err, r.URL.Path)
-        w.WriteHeader(400)
-        w.Write([]byte(err.Error()))
-        return
-    }
-
-    if err := json.Unmarshal(body, &t); err != nil {
-        log.Printf("[error] %v - %s", err, r.URL.Path)
-        w.WriteHeader(400)
-        w.Write([]byte(err.Error()))
-        return
-    }
-
-    for _, db := range a.Databases {
-
-        go func(t NetstatData, db *config.Database){
-
-            group := "test"
-
-            driver, err := neo4j.NewDriver(db.Uri, neo4j.BasicAuth(db.UserName, db.Password, ""))
-            if err != nil {
-                log.Printf("[error] %v", err)
+            if err := writer.Close(); err != nil {
+                log.Printf("[error] %v - %s", err, r.URL.Path)
+                w.WriteHeader(500)
+                w.Write(encodeResp(&Resp{Status:"error", Error:"unable to compress data", Data:make([]int, 0)}))
                 return
             }
-            defer driver.Close()
+            w.Header().Set("Content-Encoding", "gzip")
+        } else {
+            buf = *bytes.NewBuffer(data)
+        }
 
-            for _, v := range t.Data {
+        w.WriteHeader(200)
+        w.Write(buf.Bytes())
 
-                //write status to DB
-                _, err = runTransaction(driver, Transaction{
-                    Cypher: fmt.Sprintf("MATCH (a:%s { name: $src_name })-[r:relation { port: $port, mode: $mode }]->(b { name: $dst_name }) SET r.result = $result, r.response = $response, r.trace = $trace", group),
-                    Params: map[string]interface{}{
-                        "src_name":   v.LocalAddr.Name,
-                        "dst_name":   v.RemoteAddr.Name,
-                        "mode":       v.Relation.Mode,
-                        "port":       v.Relation.Port,
-                        "trace":      v.Relation.Trace,
-                        "result":     v.Relation.Result,
-                        "response":   v.Relation.Response,
-                    },
-                })
-                if err != nil {
-                    log.Printf("[error] %v", err)
-                    continue
-                }
-
-                resultCode.With(prometheus.Labels{ 
-                    "src_name": v.LocalAddr.Name, 
-                    "dst_name": v.RemoteAddr.Name, 
-                    "port":     fmt.Sprintf("%v", v.Relation.Port), 
-                    "mode":     fmt.Sprintf("%v", v.Relation.Mode), 
-                }).Set(float64(v.Relation.Result))
-
-                responseTime.With(prometheus.Labels{ 
-                    "src_name": v.LocalAddr.Name, 
-                    "dst_name": v.RemoteAddr.Name, 
-                    "port":     fmt.Sprintf("%v", v.Relation.Port), 
-                    "mode":     fmt.Sprintf("%v", v.Relation.Mode), 
-                }).Set(v.Relation.Response)
-            }
-
-        }(t, db)
+        return
     }
 
-    w.WriteHeader(204)
+    if r.Method == "DELETE" && r.URL.Path == "/api/v1/netmap/records" {
+
+        if r.Header.Get("Cluster-ID") == clusterID {
+            w.WriteHeader(204)
+            return
+        }
+        
+        keys, ok := r.URL.Query()["keys[]"]
+        if !ok {
+            w.WriteHeader(400)
+            w.Write(encodeResp(&Resp{Status:"error", Error:"not found parameter: keys[]", Data:make([]int, 0)}))
+            return
+        }
+
+        for _, k := range keys {
+            api.CacheRecords.Del(k)
+        }
+
+        w.WriteHeader(200)
+        w.Write(encodeResp(&Resp{Status:"success", Data:make([]int, 0)}))
+
+        return
+    }
+
+    if r.Method == "POST" {
+
+        var netstat NetstatData
+        var reader io.ReadCloser
+        var err error
+
+        // Check that the server actual sent compressed data
+        switch r.Header.Get("Content-Encoding") {
+            case "gzip":
+                reader, err = gzip.NewReader(r.Body)
+                if err != nil {
+                    log.Printf("[error] %v - %s", err, r.URL.Path)
+                    w.WriteHeader(400)
+                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+                    return
+                }
+                defer reader.Close()
+            default:
+                reader = r.Body
+        }
+        defer r.Body.Close()
+
+        body, err := ioutil.ReadAll(reader)
+        if err != nil {
+            log.Printf("[error] %v - %s", err, r.URL.Path)
+            w.WriteHeader(400)
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            return
+        }
+
+        if err := json.Unmarshal(body, &netstat); err != nil {
+            log.Printf("[error] %v - %s", err, r.URL.Path)
+            w.WriteHeader(400)
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            return
+        }
+
+        switch r.URL.Path {
+            case "/api/v1/netmap/netstat":
+                for _, nr := range netstat.Data {
+                    id := cache.GetID(&nr)
+                    val, ok := api.CacheRecords.Get(id)
+                    if ok {
+                        if err := api.CacheRecords.Set(id, val, true); err != nil {
+                            log.Printf("[error] %v - %s", err, r.URL.Path)
+                        }
+                    } else {
+                        if err := api.CacheRecords.Set(id, nr, true); err != nil {
+                            log.Printf("[error] %v - %s", err, r.URL.Path)
+                        }
+                    }
+                }
+            case "/api/v1/netmap/records":
+                for _, nr := range netstat.Data {
+                    id := cache.GetID(&nr)
+                    if err := api.CacheRecords.Set(id, nr, true); err != nil {
+                        log.Printf("[error] %v - %s", err, r.URL.Path)
+                    }
+                }
+            case "/api/v1/netmap/status":
+                for _, nr := range netstat.Data {
+                    id := cache.GetID(&nr)
+                    if err := api.CacheRecords.Set(id, nr, false); err != nil {
+                        log.Printf("[error] %v - %s", err, r.URL.Path)
+                    }
+                }
+        }
+
+        if len(api.Conf.Cluster.URLs) > 0 {
+            for _, url := range api.Conf.Cluster.URLs {
+                config := client.HttpConfig{
+                    URLs: []string{url},
+                    Headers: map[string]string{
+                        "Content-Type": "application/json",
+                        "Cluster-ID": clusterID,
+                    },
+                }
+                go httpClient.WriteRecords(config, r.URL.Path, body)
+            }
+        }
+        
+        w.WriteHeader(204)
+        return
+    }
+
+    w.WriteHeader(405)
+    w.Write(encodeResp(&Resp{Status:"error", Error:"method not allowed", Data:make([]int, 0)}))
 }
-*/
+
+func (api *Api) ApiWebhook(w http.ResponseWriter, r *http.Request) {
+    w.Header().Set("Content-Type", "application/json")
+
+    if r.Method == "POST" {
+
+        var reader io.ReadCloser
+        var err error
+
+        // Check that the server actual sent compressed data
+        switch r.Header.Get("Content-Encoding") {
+            case "gzip":
+                reader, err = gzip.NewReader(r.Body)
+                if err != nil {
+                    log.Printf("[error] %v - %s", err, r.URL.Path)
+                    w.WriteHeader(400)
+                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+                    return
+                }
+                defer reader.Close()
+            default:
+                reader = r.Body
+        }
+        defer r.Body.Close()
+
+        body, err := ioutil.ReadAll(reader)
+        if err != nil {
+            log.Printf("[error] %v - %s", err, r.URL.Path)
+            w.WriteHeader(400)
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            return
+        }
+
+        if len(api.Conf.Notifier.URLs) > 0 {
+            for _, url := range api.Conf.Notifier.URLs {
+                config := client.HttpConfig{
+                    URLs: []string{url},
+                    Headers: map[string]string{
+                        "Content-Type": "application/json",
+                    },
+                }
+                go httpClient.WriteRecords(config, "/api/v1/alerts", body)
+            }
+        }
+        
+        w.WriteHeader(204)
+        return
+    }
+
+    w.WriteHeader(405)
+    w.Write(encodeResp(&Resp{Status:"error", Error:"method not allowed", Data:make([]int, 0)}))
+}
+
+func (api *Api) ApiDelExpiredItems() {
+    api.CacheRecords.DelExpiredItems()
+}
+
+func (api *Api) ApiGetClusterRecords() {
+    if len(api.Conf.Cluster.URLs) > 0 {
+        for _, url := range api.Conf.Cluster.URLs {
+            items := api.CacheRecords.Items()
+
+            config := client.HttpConfig{
+                URLs: []string{url},
+                Headers: map[string]string{
+                    "Cluster-ID": clusterID,
+                },
+            }
+
+            var nrs NetstatData
+
+            body, err := httpClient.ReadRecords(config, "/api/v1/netmap/records")
+            if err != nil {
+                continue
+            }
+            if err := json.Unmarshal(body, &nrs); err != nil {
+                log.Printf("[error] %v - %s", err, "/api/v1/netmap/records")
+                continue
+            } 
+            for _, nr := range nrs.Data {
+                id := cache.GetID(&nr)
+                val, ok := items[id]
+                if ok && val.Options.ActiveTime >= nr.Options.ActiveTime {
+                    continue
+                }
+                if err := api.CacheRecords.Set(id, nr, false); err != nil {
+                    log.Printf("[error] %v - %s", err, "/api/v1/netmap/records")
+                }
+            }
+        }
+    }
+}

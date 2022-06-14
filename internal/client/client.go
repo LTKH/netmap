@@ -4,114 +4,138 @@ import (
     "io"
     "log"
     "bytes"
-    "strings"
     "net/http"
     "time"
     "io/ioutil"
     "fmt"
-    "math/rand"
+    "compress/gzip"
 )
 
-type HTTP struct {
-    URLs                []string           
-    Timeout             time.Duration
-
-    ContentEncoding     string             
-
-    Headers             map[string]string  
-
-    // HTTP Basic Auth Credentials
-    Username            string             
-    Password            string             
-
-    // Absolute path to file with Bearer token
-    BearerToken         string             
-
-    client              *http.Client
+type HttpClient struct {
+    client           *http.Client
 }
 
-func New(h HTTP) HTTP {
+type HttpConfig struct {
+    URLs             []string
+    Headers          map[string]string
+    ContentEncoding  string
+}
 
-    // Set default timeout
-    if h.Timeout == 0 {
-        h.Timeout = 5
-    }
-
-    h.client = &http.Client{
-        Transport: &http.Transport{
-            //TLSClientConfig: tlsCfg,
-            Proxy:           http.ProxyFromEnvironment,
+func NewHttpClient() *HttpClient {
+    client := &HttpClient{ 
+        client: &http.Client{
+            Transport: &http.Transport{
+                MaxIdleConnsPerHost: 10,
+                IdleConnTimeout:     90 * time.Second,
+                DisableCompression:  false,
+            },
+            Timeout: 5 * time.Second,
         },
-        Timeout: h.Timeout * time.Second,
     }
-
-    rand.Seed(time.Now().UnixNano())
-    rand.Shuffle(len(h.URLs), func(i, j int) { h.URLs[i], h.URLs[j] = h.URLs[j], h.URLs[i] })
-
-    return h
+    return client
 }
 
-func (h *HTTP) HttpRequest(method string, path string, data []byte) ([]byte, int, error) {
-    var reqBodyBuffer io.Reader = bytes.NewBuffer(data)
+func (h *HttpClient) WriteRecords(cfg HttpConfig, path string, data []byte) error {
+    var buf bytes.Buffer
 
-    for _, url := range h.URLs {
+    if cfg.ContentEncoding == "gzip" {
+        writer := gzip.NewWriter(&buf)
+        if _, err := writer.Write(data); err != nil {
+            return err
+        }
+        if err := writer.Close(); err != nil {
+            return err
+        }
+    } else {
+        buf = *bytes.NewBuffer(data)
+    }
 
-        request, err := http.NewRequest(method, url+path, reqBodyBuffer)
+    for _, url := range cfg.URLs {
+
+        req, err := http.NewRequest("POST", url+path, &buf)
         if err != nil {
             log.Printf("[error] %s - %v", url, err)
             continue
         }
-        
-        if method == "POST" {
-            request.Header.Set("Content-Type", "application/json")
-        }
-        
-        if h.ContentEncoding == "gzip" {
-            request.Header.Set("Content-Encoding", "gzip")
-        }
 
-        if h.BearerToken != "" {
-            token, err := ioutil.ReadFile(h.BearerToken)
-            if err != nil {
-                log.Printf("[error] %s - %v", url, err)
-                continue
-            }
-            bearer := "Bearer " + strings.Trim(string(token), "\n")
-            request.Header.Set("Authorization", bearer)
+        for name, value := range cfg.Headers {
+            req.Header.Set(name, value)
         }
         
-        for k, v := range h.Headers {
-            if strings.ToLower(k) == "host" {
-                request.Host = v
-            } else {
-                request.Header.Add(k, v)
-            }
+        if cfg.ContentEncoding == "gzip" {
+            req.Header.Set("Content-Encoding", "gzip")
         }
 
-        if h.Username != "" || h.Password != "" {
-            request.SetBasicAuth(h.Username, h.Password)
-        }
-
-        resp, err := h.client.Do(request)
+        resp, err := h.client.Do(req)
         if err != nil {
             log.Printf("[error] %s - %v", url, err)
             continue
         }
+        io.Copy(ioutil.Discard, resp.Body)
         defer resp.Body.Close()
 
-        body, err := ioutil.ReadAll(resp.Body)
-
-        if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+        if resp.StatusCode >= 400 {
             log.Printf("[error] when writing to [%s] received status code: %d", url+path, resp.StatusCode)
             continue
         }
+
+        return nil
+    }
+
+    return fmt.Errorf("failed to complete any request")
+}
+
+func (h *HttpClient) ReadRecords(cfg HttpConfig, path string) ([]byte, error) {
+
+    for _, url := range cfg.URLs {
+
+        var reader io.ReadCloser
+
+        req, err := http.NewRequest("GET", url+path, nil)
         if err != nil {
-            log.Printf("[error] when writing to [%s] received error: %v", url+path, err)
+            log.Printf("[error] %s - %v", url, err)
             continue
         }
 
-        return body, resp.StatusCode, nil
+        for name, value := range cfg.Headers {
+            req.Header.Set(name, value)
+        }
+
+        req.Header.Set("Accept-Encoding", "gzip")
+
+        r, err := h.client.Do(req)
+        if err != nil {
+            log.Printf("[error] %s - %v", url, err)
+            continue
+        }
+        defer r.Body.Close()
+
+        // Check that the server actual sent compressed data
+        switch r.Header.Get("Content-Encoding") {
+            case "gzip":
+                reader, err = gzip.NewReader(r.Body)
+                if err != nil {
+                    log.Printf("[error] %s - %v", url, err)
+                    continue
+                }
+                defer reader.Close()
+            default:
+                reader = r.Body
+        }
+
+        if r.StatusCode >= 400 {
+            log.Printf("[error] when reading to [%s] received status code: %d", url+path, r.StatusCode)
+            continue
+        }
+
+        body, err := ioutil.ReadAll(reader)
+        if err != nil {
+            log.Printf("[error] when reading to [%s] received error: %v", url+path, err)
+            continue
+        }
+
+        return body, nil
     }
 
-    return nil, 0, fmt.Errorf("error failed to complete any request")
+    return nil, fmt.Errorf("failed to complete any request")
 }

@@ -1,0 +1,22 @@
+global:
+  listen_address:   ":8082"
+  cert_file:        ""
+  cert_key:         ""
+  
+db:
+  #client:         "mysql"
+  #conn_string:    "root:test@(172.17.0.1)/alerttrap?parseTime=true"
+  client:         "sqlite3"
+  conn_string:    "/tmp/dbase.db"
+  history_days:   7
+
+cache:
+  limit: 1000000
+  flush_interval: "24h"
+
+cluster:
+  urls:           ["http://localhost:8082","http://localhost:8083","http://localhost:8084"]
+
+notifier:
+  urls:           ["http://localhost:9093"]
+  

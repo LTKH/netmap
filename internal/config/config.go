@@ -3,40 +3,45 @@ package config
 import (
     "io/ioutil"
 	"gopkg.in/yaml.v2"
+    //"net/url"
 )
 
 type Config struct {
 	Global           *Global            `yaml:"global"`
-    Databases        []*Database        `yaml:"databases"`
-	Alerting         *Alerting          `yaml:"alerting"`
+    Cache            *Cache             `yaml:"cache"`
+    DB               *DB                `yaml:"db"`
+    Cluster          *Cluster           `yaml:"cluster"`
+    Notifier         *Notifier          `yaml:"notifier"`
 }
 
 type Global struct {
 	Listen           string             `yaml:"listen_address"`
-	Cert_file        string             `yaml:"cert_file"`
-	Cert_key         string             `yaml:"cert_key"`
+	CertFile         string             `yaml:"cert_file"`
+	CertKey          string             `yaml:"cert_key"`
 }
 
-type Database struct {
-    Uri              string             `yaml:"uri"`
-	UserName         string             `yaml:"username"`
-	Password         string             `yaml:"password"`
+type DB struct {
+    Client           string             `yaml:"client"`
+    ConnString       string             `yaml:"conn_string"`
+    HistoryDays      int                `yaml:"history_days"`
 }
 
-type Alerting struct {
-    Alertmanagers    []Alertmanager     `yaml:"alertmanagers"`
+type Cache struct {
+    Limit          int                  `yaml:"limit"`
+    FlushInterval  string               `yaml:"flush_interval"`
 }
 
-type Alertmanager struct {
-    StaticConfigs    []StaticConfig     `yaml:"static_configs"`
+type Cluster struct {
+    URLs            []string            `yaml:"urls"`
 }
 
-type StaticConfig struct {
-    Targets          []string           `yaml:"targets"`
+type Notifier struct {
+    URLs            []string            `yaml:"urls"`
 }
 
-func LoadConfigFile(filename string) (*Config, error) {
-	cfg := &Config{}
+func New(filename string) (*Config, error) {
+
+    cfg := &Config{}
 
     content, err := ioutil.ReadFile(filename)
     if err != nil {
@@ -45,7 +50,7 @@ func LoadConfigFile(filename string) (*Config, error) {
 
     if err := yaml.UnmarshalStrict(content, cfg); err != nil {
         return cfg, err
-	}
-	
-	return cfg, nil
+    }
+    
+    return cfg, nil
 }
