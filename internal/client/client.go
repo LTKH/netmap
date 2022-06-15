@@ -141,3 +141,55 @@ func (h *HttpClient) ReadRecords(cfg HttpConfig, path string) ([]byte, error) {
 
     return nil, fmt.Errorf("failed to complete any request")
 }
+
+func (h *HttpClient) DelRecords(cfg HttpConfig, path string, data []byte) error {
+    var buf bytes.Buffer
+
+    if cfg.ContentEncoding == "gzip" {
+        writer := gzip.NewWriter(&buf)
+        if _, err := writer.Write(data); err != nil {
+            return err
+        }
+        if err := writer.Close(); err != nil {
+            return err
+        }
+    } else {
+        buf = *bytes.NewBuffer(data)
+    }
+
+    for _, url := range cfg.URLs {
+
+        req, err := http.NewRequest("DELETE", url+path, &buf)
+        if err != nil {
+            log.Printf("[error] %s - %v", url, err)
+            continue
+        }
+
+        req.Header.Set("Content-Type", "application/json")
+
+        if cfg.ContentEncoding == "gzip" {
+            req.Header.Set("Content-Encoding", "gzip")
+        }
+
+        for name, value := range cfg.Headers {
+            req.Header.Set(name, value)
+        }
+
+        resp, err := h.client.Do(req)
+        if err != nil {
+            log.Printf("[error] %s - %v", url, err)
+            continue
+        }
+        io.Copy(ioutil.Discard, resp.Body)
+        defer resp.Body.Close()
+
+        if resp.StatusCode >= 400 {
+            log.Printf("[error] when writing to [%s] received status code: %d", url+path, resp.StatusCode)
+            continue
+        }
+
+        return nil
+    }
+
+    return fmt.Errorf("failed to complete any request")
+}

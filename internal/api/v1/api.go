@@ -168,16 +168,58 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
     }
 
     if r.Method == "DELETE" && r.URL.Path == "/api/v1/netmap/records" {
-        
-        keys, ok := r.URL.Query()["keys[]"]
-        if !ok {
+
+        var reader io.ReadCloser
+        var err error
+        var keys []string
+
+        // Check that the server actual sent compressed data
+        switch r.Header.Get("Content-Encoding") {
+            case "gzip":
+                reader, err = gzip.NewReader(r.Body)
+                if err != nil {
+                    log.Printf("[error] %v - %s", err, r.URL.Path)
+                    w.WriteHeader(400)
+                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+                    return
+                }
+                defer reader.Close()
+            default:
+                reader = r.Body
+        }
+        defer r.Body.Close()
+
+        body, err := ioutil.ReadAll(reader)
+        if err != nil {
+            log.Printf("[error] %v - %s", err, r.URL.Path)
             w.WriteHeader(400)
-            w.Write(encodeResp(&Resp{Status:"error", Error:"not found parameter: keys[]", Data:make([]int, 0)}))
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            return
+        }
+
+        if err := json.Unmarshal(body, &keys); err != nil {
+            log.Printf("[error] %v - %s", err, r.URL.Path)
+            w.WriteHeader(400)
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
             return
         }
 
         for _, k := range keys {
             api.CacheRecords.Del(k)
+        }
+
+        if len(api.Conf.Cluster.URLs) > 0 && r.Header.Get("Cluster-ID") == "" {
+
+            for _, url := range api.Conf.Cluster.URLs {
+                config := client.HttpConfig{
+                    URLs: []string{url},
+                    Headers: map[string]string{
+                        "Cluster-ID": clusterID,
+                    },
+                }
+                go httpClient.DelRecords(config, r.URL.Path, body)
+            }
+
         }
 
         w.WriteHeader(200)
