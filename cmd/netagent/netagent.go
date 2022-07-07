@@ -370,7 +370,7 @@ func main() {
                                 log.Printf("[debug] %v", string(jsn))
                             }
 
-                            if nr.Options.Status == "deleted" {
+                            if nr.Options.Status == "disabled" {
                                 continue
                             }
 
