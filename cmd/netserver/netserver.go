@@ -19,12 +19,12 @@ import (
 func main() {
 
     // Command-line flag parsing
-	lsAddress      := flag.String("httpListenAddr", ":8082", "listen address")
-    cfFile         := flag.String("config", "config/config.yml", "config file")
-    lgFile         := flag.String("logfile", "", "log file")
-    logMaxSize     := flag.Int("log.maxSize", 1, "log max size") 
-    logMaxBackups  := flag.Int("log.maxBackups", 3, "log max backups")
-    logMaxAge      := flag.Int("log.maxAge", 10, "log max age")
+	lsAddress      := flag.String("web.listen-address", ":8082", "listen address")
+    cfFile         := flag.String("config.file", "config/config.yml", "config file")
+    lgFile         := flag.String("log.file", "", "log file")
+    logMaxSize     := flag.Int("log.max-size", 1, "log max size") 
+    logMaxBackups  := flag.Int("log.max-backups", 3, "log max backups")
+    logMaxAge      := flag.Int("log.max-age", 10, "log max age")
     logCompress    := flag.Bool("log.compress", true, "log compress")
     flag.Parse()
 

@@ -1,15 +1,13 @@
 [global]
+urls = ["http://localhost:8082"]
+content_encoding = "gzip"
 
 [netstat]
-urls = ["http://localhost:8082/api/v1/netmap"]
-content_encoding = "gzip"
 status = ""
 ignore_ports = [22,1521]
 interval = "900s"
 
 [[connections]]
-urls = ["http://localhost:8082/api/v1/netmap"]
-content_encoding = "gzip"
 command = "traceroute -m 3 -p {{ .port }} {{ .dst_name }}"
 interval = "60s"
 max_resp_time = "5s"

@@ -87,6 +87,12 @@ func GetSocks(iports []uint16, options cache.Options) (NetstatData, error) {
             if e.LocalAddr.IP.String() == e.RemoteAddr.IP.String() {
                 continue
             }
+            if e.RemoteAddr.IP.String() == "0.0.0.0" {
+                continue
+            }
+            if e.RemoteAddr.Port == 0 {
+                continue
+            }
             if ignorePorts(e.RemoteAddr.Port, iports) {
                 continue
             }

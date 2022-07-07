@@ -204,7 +204,7 @@ func runTrace(cmd string, tags map[string]string, cfg client.HttpConfig) {
         return
     }
 
-    if err := httpClient.WriteRecords(cfg, "/webhook", jsn); err != nil {
+    if err := httpClient.WriteRecords(cfg, "/api/v1/netmap/webhook", jsn); err != nil {
         log.Printf("[error] %v", err)
     }
 
@@ -354,11 +354,11 @@ func main() {
             for {
                 var nrs netstat.NetstatData
 
-                body, err := httpClient.ReadRecords(config, fmt.Sprintf("/records?src_name=%s", hname))
+                body, err := httpClient.ReadRecords(config, fmt.Sprintf("/api/v1/netmap/records?src_name=%s", hname))
                 if err == nil {
 
                     if err := json.Unmarshal(body, &nrs); err != nil {
-                        log.Printf("[error] %v - /records", err)
+                        log.Printf("[error] %v - /api/v1/netmap/records", err)
                     } else {
 
                         var wg sync.WaitGroup
@@ -479,7 +479,7 @@ func main() {
                                     log.Printf("[error] %v", err)
                                 } else {
                                     // Sending status
-                                    if err = httpClient.WriteRecords(config, "/status", jsn); err != nil {
+                                    if err = httpClient.WriteRecords(config, "/api/v1/netmap/status", jsn); err != nil {
                                         log.Printf("[error] %v", err)
                                     }
                                 }
@@ -557,7 +557,7 @@ func main() {
                     if err != nil {
                         log.Printf("[error] %v", err)
                     } else {
-                        if err = httpClient.WriteRecords(config, "/netstat", jsn); err != nil {
+                        if err = httpClient.WriteRecords(config, "/api/v1/netmap/netstat", jsn); err != nil {
                             log.Printf("[error] %v", err)
                         }
                     }

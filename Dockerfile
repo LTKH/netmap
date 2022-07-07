@@ -19,4 +19,4 @@ COPY --from=builder /bin/netserver /bin/netserver
 COPY config/config.yml /etc/netserver.yml
 
 ENTRYPOINT ["/bin/netserver"]
-CMD ["-config=/etc/netserver.yml"]
+CMD ["-config.file=/etc/netserver.yml"]
