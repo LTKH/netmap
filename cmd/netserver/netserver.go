@@ -22,9 +22,9 @@ func main() {
 	lsAddress      := flag.String("httpListenAddr", ":8082", "listen address")
     cfFile         := flag.String("config", "config/config.yml", "config file")
     lgFile         := flag.String("logfile", "", "log file")
-    logMaxSize     := flag.Int("log.max-size", 1, "log max size") 
-    logMaxBackups  := flag.Int("log.max-backups", 3, "log max backups")
-    logMaxAge      := flag.Int("log.max-age", 10, "log max age")
+    logMaxSize     := flag.Int("log.maxSize", 1, "log max size") 
+    logMaxBackups  := flag.Int("log.maxBackups", 3, "log max backups")
+    logMaxAge      := flag.Int("log.maxAge", 10, "log max age")
     logCompress    := flag.Bool("log.compress", true, "log compress")
     flag.Parse()
 
@@ -53,7 +53,7 @@ func main() {
 
     // Enabled listen port
     //http.Handle("/metrics", promhttp.Handler())
-    //http.HandleFunc("/-/healthy", apiV1.ApiHealthy)
+    http.HandleFunc("/-/healthy", apiV1.ApiHealthy)
     http.HandleFunc("/api/v1/netmap/netstat", apiV1.ApiRecords)
     http.HandleFunc("/api/v1/netmap/records", apiV1.ApiRecords)
     http.HandleFunc("/api/v1/netmap/status", apiV1.ApiRecords)

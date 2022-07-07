@@ -218,13 +218,13 @@ func main() {
 
     // Command-line flag parsing
     cfFile          := flag.String("config", "config/netmap.toml", "config file")
-    lgFile          := flag.String("logfile", "", "log file")
     interval        := flag.Int("interval", 30, "interval")
     plugin          := flag.String("plugin", "", "plugin")
-    log_max_size    := flag.Int("log_max_size", 1, "log max size") 
-    log_max_backups := flag.Int("log_max_backups", 3, "log max backups")
-    log_max_age     := flag.Int("log_max_age", 10, "log max age")
-    log_compress    := flag.Bool("log_compress", true, "log compress")
+    lgFile          := flag.String("logfile", "", "log file")
+    log_max_size    := flag.Int("log.maxSize", 1, "log max size") 
+    log_max_backups := flag.Int("log.maxBackups", 3, "log max backups")
+    log_max_age     := flag.Int("log.maxAge", 10, "log max age")
+    log_compress    := flag.Bool("log.compress", true, "log compress")
     debug           := flag.Bool("debug", false, "debug mode")
     flag.Parse()
 
