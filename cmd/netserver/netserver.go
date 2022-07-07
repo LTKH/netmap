@@ -51,6 +51,9 @@ func main() {
         log.Fatalf("[error] %v", err)
     }
 
+    // Get cluster records
+    apiV1.ApiGetClusterRecords()
+
     // Enabled listen port
     //http.Handle("/metrics", promhttp.Handler())
     http.HandleFunc("/-/healthy", apiV1.ApiHealthy)
@@ -85,7 +88,6 @@ func main() {
     // Daemon mode
     for {
         apiV1.ApiDelExpiredItems()
-        apiV1.ApiGetClusterRecords()
         time.Sleep(600 * time.Second)
     }
 }

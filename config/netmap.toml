@@ -3,7 +3,7 @@ urls = ["http://localhost:8082"]
 content_encoding = "gzip"
 
 [netstat]
-status = ""
+status = "netstat"
 ignore_ports = [22,1521]
 interval = "900s"
 

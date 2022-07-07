@@ -370,7 +370,7 @@ func main() {
                                 log.Printf("[debug] %v", string(jsn))
                             }
 
-                            if nr.Options.Status != "" {
+                            if nr.Options.Status == "deleted" {
                                 continue
                             }
 
@@ -470,18 +470,18 @@ func main() {
                             }(nr)
 
                             wg.Wait()
+                        }
 
-                            if len(nrr.Data) > 0 {
+                        if len(nrr.Data) > 0 {
                     
-                                // Create json
-                                jsn, err := json.Marshal(nrr)
-                                if err != nil {
+                            // Create json
+                            jsn, err := json.Marshal(nrr)
+                            if err != nil {
+                                log.Printf("[error] %v", err)
+                            } else {
+                                // Sending status
+                                if err = httpClient.WriteRecords(config, "/api/v1/netmap/status", jsn); err != nil {
                                     log.Printf("[error] %v", err)
-                                } else {
-                                    // Sending status
-                                    if err = httpClient.WriteRecords(config, "/api/v1/netmap/status", jsn); err != nil {
-                                        log.Printf("[error] %v", err)
-                                    }
                                 }
                             }
                         }
