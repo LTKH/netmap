@@ -98,11 +98,6 @@ func New(cfg *config.Config) (*Api, error) {
     return &api, nil
 }
 
-func (api *Api) ApiHealthy(w http.ResponseWriter, r *http.Request) {
-    w.Header().Set("Content-Type", "text/plain")
-    w.Write([]byte("OK"))
-}
-
 func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
 

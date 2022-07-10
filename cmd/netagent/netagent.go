@@ -217,25 +217,25 @@ func main() {
     runtime.GOMAXPROCS(runtime.NumCPU())
 
     // Command-line flag parsing
-    cfFile          := flag.String("config", "config/netmap.toml", "config file")
-    interval        := flag.Int("interval", 30, "interval")
-    plugin          := flag.String("plugin", "", "plugin")
-    lgFile          := flag.String("logfile", "", "log file")
-    log_max_size    := flag.Int("log.maxSize", 1, "log max size") 
-    log_max_backups := flag.Int("log.maxBackups", 3, "log max backups")
-    log_max_age     := flag.Int("log.maxAge", 10, "log max age")
-    log_compress    := flag.Bool("log.compress", true, "log compress")
-    debug           := flag.Bool("debug", false, "debug mode")
+    cfFile         := flag.String("config", "config/netmap.toml", "config file")
+    interval       := flag.Int("interval", 30, "interval")
+    plugin         := flag.String("plugin", "", "plugin")
+    lgFile         := flag.String("log.file", "", "log file")
+    logMaxSize     := flag.Int("log.max-size", 1, "log max size") 
+    logMaxBackups  := flag.Int("log.max-backups", 3, "log max backups")
+    logMaxAge      := flag.Int("log.max-age", 10, "log max age")
+    logCompress    := flag.Bool("log.compress", true, "log compress")
+    debug          := flag.Bool("debug", false, "debug mode")
     flag.Parse()
 
     // Logging settings
     if *lgFile != "" || *plugin != "" {
         log.SetOutput(&lumberjack.Logger{
             Filename:   *lgFile,
-            MaxSize:    *log_max_size,    // megabytes after which new file is created
-            MaxBackups: *log_max_backups, // number of backups
-            MaxAge:     *log_max_age,     // days
-            Compress:   *log_compress,    // using gzip
+            MaxSize:    *logMaxSize,     // megabytes after which new file is created
+            MaxBackups: *logMaxBackups,  // number of backups
+            MaxAge:     *logMaxAge,      // days
+            Compress:   *logCompress,    // using gzip
         })
     }
 

@@ -2,6 +2,7 @@ package main
 
 import (
     "net/http"
+    _ "net/http/pprof"
     "time"
     "log"
     "os"
@@ -9,11 +10,10 @@ import (
     "syscall"
     "flag"
     "gopkg.in/natefinch/lumberjack.v2"
-    //"github.com/prometheus/client_golang/prometheus"
-    //"github.com/prometheus/client_golang/prometheus/promhttp"
-    //"github.com/ltkh/netmap/internal/db"
+    "github.com/prometheus/client_golang/prometheus/promhttp"
     "github.com/ltkh/netmap/internal/api/v1"
     "github.com/ltkh/netmap/internal/config"
+    //"github.com/ltkh/netmap/internal/db"
 )
 
 func main() {
@@ -55,12 +55,17 @@ func main() {
     apiV1.ApiGetClusterRecords()
 
     // Enabled listen port
-    //http.Handle("/metrics", promhttp.Handler())
-    http.HandleFunc("/-/healthy", apiV1.ApiHealthy)
+    http.HandleFunc("/-/healthy", func (w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Content-Type", "text/plain")
+        w.Write([]byte("OK"))
+    })
+
     http.HandleFunc("/api/v1/netmap/netstat", apiV1.ApiRecords)
     http.HandleFunc("/api/v1/netmap/records", apiV1.ApiRecords)
     http.HandleFunc("/api/v1/netmap/status", apiV1.ApiRecords)
     http.HandleFunc("/api/v1/netmap/webhook", apiV1.ApiWebhook)
+
+    http.Handle("/metrics", promhttp.Handler())
 
     go func(cfg *config.Global){
         if cfg.CertFile != "" && cfg.CertKey != "" {
