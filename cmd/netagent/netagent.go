@@ -452,9 +452,12 @@ func main() {
                                 }
 
                                 // Adding metrics
+                                if nr.Options.Service == "" {
+                                    nr.Options.Service = "unknown"
+                                }
                                 if *plugin == "telegraf" {
                                     fmt.Printf(
-                                        "netmap,src_name=\"%s\",src_ip=\"%s\",dst_name=\"%s\",dst_ip=\"%s\",service=\"%s\",port=%d,mode=\"%s\" result_code=%d,response_time=%f\n", 
+                                        "netmap,src_name=%s,src_ip=%s,dst_name=%s,dst_ip=%s,service=%s,port=%d,mode=%s result_code=%d,response_time=%f\n", 
                                         nr.LocalAddr.Name,
                                         nr.LocalAddr.IP,
                                         nr.RemoteAddr.Name,
