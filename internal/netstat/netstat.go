@@ -114,20 +114,29 @@ func GetSocks(iports []uint16, options cache.Options) (NetstatData, error) {
             }
             defer conn.Close()
 
+            if e.Process == nil {
+                e.Process = &ns.Process{}
+            }
+
             nd.Data = append(nd.Data, cache.SockTable{
                 LocalAddr: cache.SockAddr{
-                    IP:    e.LocalAddr.IP,
-                    Name:  name,
+                    IP:          e.LocalAddr.IP,
+                    Name:        name,
                 },
                 RemoteAddr: cache.SockAddr{
-                    IP:    e.RemoteAddr.IP,
-                    Name:  addr,
+                    IP:          e.RemoteAddr.IP,
+                    Name:        addr,
                 },
                 Relation: cache.Relation{
-                    Mode:  mode,
-                    Port:  e.RemoteAddr.Port,
+                    Mode:        mode,
+                    Port:        e.RemoteAddr.Port,
                 },
-                Options: options,
+                Options: cache.Options {
+                    Status:      options.Status,
+                    Timeout:     options.Timeout,
+                    MaxRespTime: options.MaxRespTime,
+                    Service:     e.Process.Name,
+                },
             })
         }
     }
