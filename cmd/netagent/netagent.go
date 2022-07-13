@@ -47,7 +47,7 @@ type Netstat struct {
     URLs             []string                `toml:"urls"`
     ContentEncoding  string                  `toml:"content_encoding"`
     Status           string                  `toml:"status"`
-    IgnorePorts      []uint16                `toml:"ignore_ports"`
+    IgnoreHosts      []string                `toml:"ignore_hosts"`
     Interval         string                  `toml:"interval"`
     Timeout          string                  `toml:"timeout"`
     MaxRespTime      string                  `toml:"max_resp_time"`
@@ -551,7 +551,7 @@ func main() {
                 MaxRespTime: float64(netstatMaxRespTime / time.Second),
             }
 
-            nrs, err := netstat.GetSocks(cfg.Netstat.IgnorePorts, options)
+            nrs, err := netstat.GetSocks(cfg.Netstat.IgnoreHosts, options)
             if err != nil {
                 log.Printf("[error] %v", err)
             } else {

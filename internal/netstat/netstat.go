@@ -4,8 +4,9 @@ import (
     "os"
     "net"
     "time"
-    //"log"
+    "log"
     //"encoding/json"
+    "regexp"
     "fmt"
     "strings"
     "github.com/ltkh/netmap/internal/cache"
@@ -27,9 +28,15 @@ func Hostname() (string, error) {
     return hostname, nil
 }
 
-func ignorePorts(port uint16, iports []uint16) bool {
-    for _, p := range iports {
-        if port == p {
+func ignoreHosts(host string, port uint16, ihosts []string) bool {
+    for _, h := range ihosts {
+        hst := fmt.Sprintf("%s:%v", host, port)
+        match, err := regexp.MatchString(h, hst)
+        if err != nil {
+            log.Printf("[error] %v", err)
+            continue
+        }
+        if match {
             return true
         }
     }
@@ -47,7 +54,7 @@ func lookupAddr(ipAddress string) (string, error) {
     return strings.Trim(name[0], "."), nil
 }
 
-func GetSocks(iports []uint16, options cache.Options) (NetstatData, error) {
+func GetSocks(ihosts []string, options cache.Options) (NetstatData, error) {
     var nd NetstatData
     
     // Get hostname
@@ -78,33 +85,34 @@ func GetSocks(iports []uint16, options cache.Options) (NetstatData, error) {
 
         for _, e := range socks {
 
-            //jsn, _ := json.Marshal(e)
-            //log.Printf("[debug] %v", string(jsn))
-
-            if e.State == ns.Listen {
-                continue
-            }
-            if e.LocalAddr.IP.String() == e.RemoteAddr.IP.String() {
-                continue
-            }
-            if e.RemoteAddr.IP.String() == "0.0.0.0" {
-                continue
-            }
-            if e.RemoteAddr.Port == 0 {
-                continue
-            }
-            if ignorePorts(e.RemoteAddr.Port, iports) {
-                continue
-            }
-
-            id := fmt.Sprintf("%v:%v", e.RemoteAddr.IP, e.RemoteAddr.Port)
+            id := fmt.Sprintf("%v:%v:%v", e.RemoteAddr.IP, e.RemoteAddr.Port, mode)
             if _, ok := ks[id]; ok {
                 continue
             }
             ks[id] = id
-            
+
             addr, err := lookupAddr(e.RemoteAddr.IP.String())
             if err != nil {
+                continue
+            }
+
+            //if e.State == ns.Listen {
+            //    continue
+            //}
+
+            if e.LocalAddr.IP.String() == e.RemoteAddr.IP.String() {
+                continue
+            }
+
+            if e.RemoteAddr.IP.String() == "0.0.0.0" {
+                continue
+            }
+
+            if e.RemoteAddr.Port == 0 {
+                continue
+            }
+
+            if ignoreHosts(addr, e.RemoteAddr.Port, ihosts){
                 continue
             }
 
@@ -113,6 +121,9 @@ func GetSocks(iports []uint16, options cache.Options) (NetstatData, error) {
                 continue
             }
             defer conn.Close()
+
+            //jsn, _ := json.Marshal(e)
+            //log.Printf("[debug] %v", string(jsn))
 
             if e.Process == nil {
                 e.Process = &ns.Process{}
