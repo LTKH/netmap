@@ -3,9 +3,9 @@ urls = ["http://localhost:8082"]
 content_encoding = "gzip"
 
 [netstat]
-status = "netstat"
+status = "disabled"
 ignore_hosts = [".*:67"]
-interval = "600s"
+interval = "60s"
 
 [[connections]]
 command = "traceroute -m 3 -p {{ .port }} {{ .dst_name }}"

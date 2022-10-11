@@ -129,9 +129,6 @@ func (t *Records) DelExpiredItems() bool {
     defer t.Unlock()
 
     for k, v := range t.items {
-        if v.Options.Status == "added" {
-            continue
-        }
         if float64(v.Options.ActiveTime) + float64(t.flush / time.Second) < float64(time.Now().UTC().Unix()) {
             delete(t.items, k)
         }
