@@ -123,7 +123,9 @@ func (t *Records) Items() map[string]SockTable {
     return items
 }
 
-func (t *Records) DelExpiredItems() bool {
+func (t *Records) DelExpiredItems() []string {
+
+    var keys []string
 
     t.Lock()
     defer t.Unlock()
@@ -131,8 +133,9 @@ func (t *Records) DelExpiredItems() bool {
     for k, v := range t.items {
         if float64(v.Options.ActiveTime) + float64(t.flush / time.Second) < float64(time.Now().UTC().Unix()) {
             delete(t.items, k)
+            keys = append(keys, k)
         }
     }
 
-    return true
+    return keys
 }

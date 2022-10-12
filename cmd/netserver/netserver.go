@@ -92,7 +92,7 @@ func main() {
 
     // Daemon mode
     for {
-        apiV1.ApiDelExpiredItems()
+        //apiV1.ApiDelExpiredItems()
         time.Sleep(600 * time.Second)
     }
 }

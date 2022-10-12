@@ -3,6 +3,7 @@ package v1
 import (
     "log"
     "fmt"
+    "strconv"
     "net/http"
     "time"
     "errors"
@@ -55,6 +56,11 @@ type Resp struct {
 
 type NetstatData struct {
     Data         []cache.SockTable         `json:"data"`
+}
+
+type Args struct {
+    SrcName      string
+    Timestamp    int64
 }
 
 func getClusterID() string {
@@ -111,12 +117,25 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
 
         var records []cache.SockTable
 
-        strArgs := make(map[string]string)
+        args := &Args{}
 
         for k, v := range r.URL.Query() {
             switch k {
                 case "src_name":
-                    strArgs[k] = v[0]
+                    if v[0] == "" {
+                        w.WriteHeader(400)
+                        w.Write(encodeResp(&Resp{Status:"error", Error:fmt.Sprintf("executing query: invalid parameter: %v", k), Data:make([]int, 0)}))
+                        return
+                    }
+                    args.SrcName = v[0]
+                case "timestamp":
+                    i, err := strconv.Atoi(v[0])
+                    if err != nil {
+                        w.WriteHeader(400)
+                        w.Write(encodeResp(&Resp{Status:"error", Error:fmt.Sprintf("executing query: invalid parameter: %v", k), Data:make([]int, 0)}))
+                        return
+                    }
+                    args.Timestamp = int64(i)
                 default:
                     w.WriteHeader(400)
                     w.Write(encodeResp(&Resp{Status:"error", Error:fmt.Sprintf("executing query: invalid parameter: %v", k), Data:make([]int, 0)}))
@@ -125,7 +144,10 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
         }
 
         for key, item := range api.CacheRecords.Items() {
-            if strArgs["src_name"] != "" && strArgs["src_name"] != item.LocalAddr.Name {
+            if args.SrcName != "" && args.SrcName != item.LocalAddr.Name {
+                continue
+            }
+            if args.Timestamp != 0 && item.Options.ActiveTime < args.Timestamp {
                 continue
             }
             item.Id = key
@@ -265,35 +287,11 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
             return
         }
 
-        switch r.URL.Path {
-            case "/api/v1/netmap/netstat":
-                for _, nr := range netstat.Data {
-                    id := cache.GetID(&nr)
-                    val, ok := api.CacheRecords.Get(id)
-                    if ok {
-                        if err := api.CacheRecords.Set(id, val, true); err != nil {
-                            log.Printf("[error] %v - %s", err, r.URL.Path)
-                        }
-                    } else {
-                        if err := api.CacheRecords.Set(id, nr, true); err != nil {
-                            log.Printf("[error] %v - %s", err, r.URL.Path)
-                        }
-                    }
-                }
-            case "/api/v1/netmap/records":
-                for _, nr := range netstat.Data {
-                    id := cache.GetID(&nr)
-                    if err := api.CacheRecords.Set(id, nr, true); err != nil {
-                        log.Printf("[error] %v - %s", err, r.URL.Path)
-                    }
-                }
-            case "/api/v1/netmap/status":
-                for _, nr := range netstat.Data {
-                    id := cache.GetID(&nr)
-                    if err := api.CacheRecords.Set(id, nr, false); err != nil {
-                        log.Printf("[error] %v - %s", err, r.URL.Path)
-                    }
-                }
+        for _, nr := range netstat.Data {
+            id := cache.GetID(&nr)
+            if err := api.CacheRecords.Set(id, nr, true); err != nil {
+                log.Printf("[error] %v - %s", err, r.URL.Path)
+            }
         }
 
         if len(api.Conf.Cluster.URLs) > 0 && r.Header.Get("Cluster-ID") == "" {
