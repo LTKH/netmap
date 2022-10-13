@@ -45,6 +45,7 @@ var (
 type Api struct {
     Conf         *config.Config
     CacheRecords *cache.Records
+    ConnsChan    chan int
 }
 
 type Resp struct {
@@ -101,6 +102,8 @@ func New(cfg *config.Config) (*Api, error) {
     api.Conf = cfg
     api.CacheRecords = cache.NewCacheRecords(cfg.Cache.Limit, flushInterval)
 
+    //api.ConnsChan = make(chan int, cfg.Global.)
+
     return &api, nil
 }
 
@@ -116,42 +119,27 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
     if r.Method == "GET" && r.URL.Path == "/api/v1/netmap/records" {
 
         var records []cache.SockTable
+        var timestamp int
 
-        args := &Args{}
-
-        for k, v := range r.URL.Query() {
-            switch k {
-                case "src_name":
-                    if v[0] == "" {
-                        w.WriteHeader(400)
-                        w.Write(encodeResp(&Resp{Status:"error", Error:fmt.Sprintf("executing query: invalid parameter: %v", k), Data:make([]int, 0)}))
-                        return
-                    }
-                    args.SrcName = v[0]
-                case "timestamp":
-                    i, err := strconv.Atoi(v[0])
-                    if err != nil {
-                        w.WriteHeader(400)
-                        w.Write(encodeResp(&Resp{Status:"error", Error:fmt.Sprintf("executing query: invalid parameter: %v", k), Data:make([]int, 0)}))
-                        return
-                    }
-                    args.Timestamp = int64(i)
-                default:
+        if v, found := r.URL.Query()["src_name"]; found {
+            records, _ = api.CacheRecords.GetByName(v[0])
+        } else {
+            if v, found := r.URL.Query()["timestamp"]; found {
+                t, err := strconv.Atoi(v[0])
+                if err != nil {
                     w.WriteHeader(400)
-                    w.Write(encodeResp(&Resp{Status:"error", Error:fmt.Sprintf("executing query: invalid parameter: %v", k), Data:make([]int, 0)}))
+                    w.Write(encodeResp(&Resp{Status:"error", Error:"executing query: invalid parameter: timestamp", Data:make([]int, 0)}))
                     return
+                }
+                timestamp = t
             }
-        }
-
-        for key, item := range api.CacheRecords.Items() {
-            if args.SrcName != "" && args.SrcName != item.LocalAddr.Name {
-                continue
+            for key, item := range api.CacheRecords.Items() {
+                if timestamp != 0 && item.Options.ActiveTime < int64(timestamp) {
+                    continue
+                }
+                item.Id = key
+                records = append(records, item)
             }
-            if args.Timestamp != 0 && item.Options.ActiveTime < args.Timestamp {
-                continue
-            }
-            item.Id = key
-            records = append(records, item)
         }
 
         if len(records) == 0 {

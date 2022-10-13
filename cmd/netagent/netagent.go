@@ -276,8 +276,6 @@ func main() {
         log.Fatalf("[error] %v", err)
     }
 
-    log.Print("[info] netmap started -_-")
-
     run := true
     
     // Program signal processing
@@ -355,6 +353,8 @@ func main() {
             }
 
             for {
+
+                time.Sleep(time.Duration(rand.Intn(10000)) * time.Millisecond)
 
                 body, err := httpClient.ReadRecords(config, fmt.Sprintf("/api/v1/netmap/records?src_name=%s", hname))
                 if err == nil {
@@ -651,6 +651,8 @@ func main() {
             time.Sleep(netstatInterval)
         }
     }()
+
+    log.Print("[info] netmap started -_-")
 
     // Daemon mode
     for (run) {

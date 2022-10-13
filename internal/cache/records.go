@@ -46,6 +46,7 @@ type Options struct {
 type Records struct {
     sync.RWMutex
     items          map[string]SockTable
+    index          map[string]map[string]bool
     limit          int
     flush          time.Duration
 }
@@ -68,6 +69,7 @@ func GetID(i *SockTable) string {
 func NewCacheRecords(limit int, flush time.Duration) *Records {
     cache := Records{
         items: make(map[string]SockTable),
+        index: make(map[string]map[string]bool),
         limit: limit,
         flush: flush,
     }
@@ -87,7 +89,13 @@ func (t *Records) Set(key string, val SockTable, active bool) error {
         val.Options.ActiveTime = time.Now().UTC().Unix()
     }
 
+    if _, ok := t.index[val.LocalAddr.Name]; !ok {
+        t.index[val.LocalAddr.Name] = make(map[string]bool)
+    }
+
+    t.index[val.LocalAddr.Name][key] = true
     t.items[key] = val
+
     return nil
 }
 
@@ -95,17 +103,31 @@ func (t *Records) Get(key string) (SockTable, bool) {
     t.RLock()
     defer t.RUnlock()
 
-    val := SockTable{}
     val, found := t.items[key]
     if !found {
-        return val, false
+        return SockTable{}, false
     }
+
     return val, true
 }
 
 func (t *Records) Del(key string) bool {
+    val, found := t.Get(key)
+    if !found {
+        return false
+    }
+
     t.Lock()
     defer t.Unlock()
+
+    if _, ok := t.index[val.LocalAddr.Name]; ok {
+        if _, ok := t.index[val.LocalAddr.Name][key]; ok {
+            delete(t.index[val.LocalAddr.Name], key)
+        }
+        if len(t.index[val.LocalAddr.Name]) == 0 {
+            delete(t.index, val.LocalAddr.Name)
+        }
+    }
 
     delete(t.items, key)
 
@@ -138,4 +160,23 @@ func (t *Records) DelExpiredItems() []string {
     }
 
     return keys
+}
+
+func (t *Records) GetByName(name string) ([]SockTable, bool) {
+    t.RLock()
+    defer t.RUnlock()
+
+    arr := []SockTable{}
+
+    if _, ok := t.index[name]; !ok {
+        return arr, false
+    }
+
+    for key, _ := range t.index[name] {
+        if val, ok := t.items[key]; ok {
+            arr = append(arr, val)
+        }
+    }
+
+    return arr, true
 }
