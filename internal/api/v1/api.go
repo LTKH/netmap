@@ -119,27 +119,29 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
     if r.Method == "GET" && r.URL.Path == "/api/v1/netmap/records" {
 
         var records []cache.SockTable
-        var timestamp int
 
-        if v, found := r.URL.Query()["src_name"]; found {
-            records, _ = api.CacheRecords.GetByName(v[0])
-        } else {
-            if v, found := r.URL.Query()["timestamp"]; found {
-                t, err := strconv.Atoi(v[0])
-                if err != nil {
-                    w.WriteHeader(400)
-                    w.Write(encodeResp(&Resp{Status:"error", Error:"executing query: invalid parameter: timestamp", Data:make([]int, 0)}))
-                    return
-                }
-                timestamp = t
+        args := &Args{}
+
+        for k, v := range r.URL.Query() {
+            switch k {
+                case "src_name":
+                    args.SrcName = v[0]
+                case "timestamp":
+                    i, err := strconv.Atoi(v[0])
+                    if err != nil {
+                        w.WriteHeader(400)
+                        w.Write(encodeResp(&Resp{Status:"error", Error:fmt.Sprintf("executing query: invalid parameter: %v", k), Data:make([]int, 0)}))
+                        return
+                    }
+                    args.Timestamp = int64(i)
             }
-            for key, item := range api.CacheRecords.Items() {
-                if timestamp != 0 && item.Options.ActiveTime < int64(timestamp) {
-                    continue
-                }
-                item.Id = key
-                records = append(records, item)
+        }
+
+        for _, item := range api.CacheRecords.Items(args.SrcName) {
+            if args.Timestamp != 0 && args.Timestamp > item.Options.ActiveTime {
+                continue
             }
+            records = append(records, item)
         }
 
         if len(records) == 0 {
@@ -360,8 +362,7 @@ func (api *Api) ApiDelExpiredItems() {
 func (api *Api) ApiGetClusterRecords() {
     if len(api.Conf.Cluster.URLs) > 0 {
         for _, url := range api.Conf.Cluster.URLs {
-            items := api.CacheRecords.Items()
-
+            
             config := client.HttpConfig{
                 URLs: []string{url},
                 Headers: map[string]string{
@@ -383,14 +384,12 @@ func (api *Api) ApiGetClusterRecords() {
 
             for _, nr := range nrs.Data {
                 id := cache.GetID(&nr)
-                val, ok := items[id]
-                if ok && val.Options.ActiveTime >= nr.Options.ActiveTime {
-                    continue
-                }
-                if err := api.CacheRecords.Set(id, nr, true); err != nil {
+                if err := api.CacheRecords.Set(id, nr, false); err != nil {
                     log.Printf("[error] %v - %s", err, "/api/v1/netmap/records")
                 }
             }
+
+            break
         }
     }
 }

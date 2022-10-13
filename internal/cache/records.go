@@ -93,6 +93,7 @@ func (t *Records) Set(key string, val SockTable, active bool) error {
         t.index[val.LocalAddr.Name] = make(map[string]bool)
     }
 
+    val.Id = key
     t.index[val.LocalAddr.Name][key] = true
     t.items[key] = val
 
@@ -134,14 +135,27 @@ func (t *Records) Del(key string) bool {
     return true
 }
 
-func (t *Records) Items() map[string]SockTable {
+func (t *Records) Items(name string) []SockTable {
     t.RLock()
     defer t.RUnlock()
+
+    var items []SockTable
+
+    if name == "" {
+        for _, val := range t.items {
+            items = append(items, val)
+        }
+        return items
+    } 
     
-    items := make(map[string]SockTable)
-    for k, v := range t.items {
-        items[k] = v
-    }  
+    if _, ok := t.index[name]; ok {
+        for key, _ := range t.index[name] {
+            if val, ok := t.items[key]; ok {
+                items = append(items, val)
+            }
+        }
+    }
+
     return items
 }
 
@@ -160,23 +174,4 @@ func (t *Records) DelExpiredItems() []string {
     }
 
     return keys
-}
-
-func (t *Records) GetByName(name string) ([]SockTable, bool) {
-    t.RLock()
-    defer t.RUnlock()
-
-    arr := []SockTable{}
-
-    if _, ok := t.index[name]; !ok {
-        return arr, false
-    }
-
-    for key, _ := range t.index[name] {
-        if val, ok := t.items[key]; ok {
-            arr = append(arr, val)
-        }
-    }
-
-    return arr, true
 }

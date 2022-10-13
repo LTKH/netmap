@@ -412,7 +412,7 @@ func main() {
                 var wg sync.WaitGroup
                 var nrr netstat.NetstatData
 
-                items := cacheRecords.Items()
+                items := cacheRecords.Items("")
 
                 if *debug {
                     log.Printf("[debug] check started, records in cache (%v)", len(items))
