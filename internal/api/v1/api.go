@@ -61,6 +61,7 @@ type NetstatData struct {
 
 type Args struct {
     SrcName      string
+    Status       string
     Timestamp    int64
 }
 
@@ -126,6 +127,8 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
             switch k {
                 case "src_name":
                     args.SrcName = v[0]
+                case "status":
+                    args.Status = v[0]
                 case "timestamp":
                     i, err := strconv.Atoi(v[0])
                     if err != nil {
@@ -139,6 +142,9 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
 
         for _, item := range api.CacheRecords.Items(args.SrcName) {
             if args.Timestamp != 0 && args.Timestamp > item.Options.ActiveTime {
+                continue
+            }
+            if args.Status != "" && args.Status != item.Options.Status {
                 continue
             }
             records = append(records, item)
@@ -277,8 +283,11 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
             return
         }
 
+        ids := []string{}
+
         for _, nr := range netstat.Data {
             id := cache.GetID(&nr)
+            ids = append(ids, id)
             if err := api.CacheRecords.Set(id, nr, true); err != nil {
                 log.Printf("[error] %v - %s", err, r.URL.Path)
             }
@@ -298,7 +307,8 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
 
         }
         
-        w.WriteHeader(204)
+        w.WriteHeader(200)
+        w.Write(encodeResp(&Resp{Status:"success", Data:ids}))
         return
     }
 
