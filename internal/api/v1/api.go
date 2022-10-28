@@ -65,6 +65,17 @@ type Args struct {
     Timestamp    int64
 }
 
+func readUserIP(r *http.Request) string {
+    IPAddress := r.Header.Get("X-Real-Ip")
+    if IPAddress == "" {
+        IPAddress = r.Header.Get("X-Forwarded-For")
+    }
+    if IPAddress == "" {
+        IPAddress = r.RemoteAddr
+    }
+    return IPAddress
+}
+
 func getClusterID() string {
     return cache.GetHash(fmt.Sprintf("%v", time.Now().UnixNano()))
 }
@@ -283,13 +294,47 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
             return
         }
 
+        rhost := readUserIP(r)
         ids := []string{}
+        code := 200
 
         for _, nr := range netstat.Data {
             id := cache.GetID(&nr)
             ids = append(ids, id)
+
+            if nr.LocalAddr.Name == "" {
+                log.Printf("[error] parameter missing localAddr.name, sender - %s", rhost)
+                code = 400
+                continue
+            }
+            if nr.LocalAddr.IP == nil {
+                log.Printf("[error] parameter missing LocalAddr.IP, sender - %s", rhost)
+                code = 400
+                continue
+            }
+            if nr.RemoteAddr.Name == "" {
+                log.Printf("[error] parameter missing RemoteAddr.Name, sender - %s", rhost)
+                code = 400
+                continue
+            }
+            if nr.RemoteAddr.IP == nil {
+                log.Printf("[error] parameter missing RemoteAddr.IP, sender - %s", rhost)
+                code = 400
+                continue
+            }
+            if nr.Relation.Port == 0 {
+                log.Printf("[error] parameter missing Relation.Port, sender - %s", rhost)
+                code = 400
+                continue
+            }
+            if nr.Relation.Mode == "" {
+                log.Printf("[error] parameter missing Relation.Mode, sender - %s", rhost)
+                code = 400
+                continue
+            }
             if err := api.CacheRecords.Set(id, nr, true); err != nil {
                 log.Printf("[error] %v - %s", err, r.URL.Path)
+                code = 400
             }
         }
 
@@ -307,8 +352,12 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
 
         }
         
-        w.WriteHeader(200)
-        w.Write(encodeResp(&Resp{Status:"success", Data:ids}))
+        w.WriteHeader(code)
+        if (code == 400){
+            w.Write(encodeResp(&Resp{Status:"success", Warnings:[]string{"One or more records are not written"}, Data:ids}))
+        } else {
+            w.Write(encodeResp(&Resp{Status:"success", Data:ids}))
+        }
         return
     }
 

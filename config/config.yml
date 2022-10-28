@@ -11,8 +11,8 @@ cache:
   flush_interval: "24h"
 
 cluster:
-  urls:           ["http://localhost:8083"]
+  urls:           []
 
 notifier:
-  urls:           ["http://localhost:9093"]
+  urls:           []
   

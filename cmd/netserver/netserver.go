@@ -19,7 +19,7 @@ import (
 func main() {
 
     // Command-line flag parsing
-	lsAddress      := flag.String("web.listen-address", ":8082", "listen address")
+	lsAddress      := flag.String("web.listen-address", ":8084", "listen address")
     cfFile         := flag.String("config.file", "config/config.yml", "config file")
     lgFile         := flag.String("log.file", "", "log file")
     logMaxSize     := flag.Int("log.max-size", 1, "log max size") 
