@@ -39,8 +39,9 @@ type Options struct {
     Status         string                 `json:"status,omitempty"`
     Command        string                 `json:"command,omitempty"`
     Timeout        float64                `json:"timeout"`
-    MaxRespTime    float64                `json:"max_resp_time"`
-    ActiveTime     int64                  `json:"active_time"`
+    MaxRespTime    float64                `json:"maxRespTime"`
+    ActiveTime     int64                  `json:"activeTime"`
+    AccountID      uint32                 `json:"accountID"`
 }
 
 type Records struct {

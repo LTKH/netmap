@@ -147,6 +147,7 @@ func GetSocks(ihosts []string, options cache.Options) (NetstatData, error) {
                     Timeout:     options.Timeout,
                     MaxRespTime: options.MaxRespTime,
                     Service:     e.Process.Name,
+                    AccountID:   options.AccountID,
                 },
             })
         }

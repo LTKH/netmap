@@ -1,6 +1,7 @@
 [global]
 urls = ["http://localhost:8082"]
 content_encoding = "gzip"
+account_id = 0
 
 [netstat]
 status = "netstat"

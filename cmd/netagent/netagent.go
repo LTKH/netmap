@@ -42,6 +42,7 @@ type Global struct {
     Interval         string                  `toml:"interval"`
     Timeout          string                  `toml:"timeout"`
     MaxRespTime      string                  `toml:"max_resp_time"`
+    AccountID        uint32                  `toml:"account_id"`
 }
 
 type Netstat struct {
@@ -488,7 +489,8 @@ func main() {
                             nr.Options.Service = "unknown"
                         }
 
-                        if nr.Relation.Result != result || nr.Relation.Trace != trace {
+                        if nr.Relation.Result != result || nr.Relation.Trace != trace || nr.Options.AccountID != cfg.Global.AccountID {
+                            nr.Options.AccountID = cfg.Global.AccountID
                             nr.Relation.Result = result
                             nr.Relation.Trace = trace
                             nrr.Data = append(nrr.Data, nr)
@@ -604,6 +606,7 @@ func main() {
                     Status:      cfg.Netstat.Status,
                     Timeout:     float64(netstatTimeout / time.Second),
                     MaxRespTime: float64(netstatMaxRespTime / time.Second),
+                    AccountID:   cfg.Global.AccountID,
                 }
 
                 nrs, err := netstat.GetSocks(cfg.Netstat.IgnoreHosts, options)
