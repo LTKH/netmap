@@ -1,17 +1,13 @@
 global:
-  cert_file:        ""
-  cert_key:         ""
+  cert_file:      ""
+  cert_key:       ""
   
 db:
   client:         "sqlite3"
-  conn_string:    "/tmp/dbase.db"
-
-cache:
-  limit: 1000000
+  #client:         "cache"
+  conn_string:    "netmap.db"
+  limit:          1000000
   flush_interval: "24h"
-
-cluster:
-  urls:           []
 
 notifier:
   urls:           []

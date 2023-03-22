@@ -300,103 +300,98 @@ func main() {
         }
     }()
 
-    connsChan := make(chan int, len(cfg.Connections))
-
     // Get connections
-    for _, cn := range cfg.Connections {
+    func GetConnections() {
 
-        // Set default URLs
-        if len(cn.URLs) == 0 {
-            cn.URLs = cfg.Global.URLs
-        }
-        if len(cn.URLs) == 0 {
-            continue
-        }
+        for _, cn := range cfg.Connections {
 
-        // Set default ContentEncoding
-        if cn.ContentEncoding == "" {
-            cn.ContentEncoding = cfg.Global.ContentEncoding
-        }
+            // Set default URLs
+            if len(cn.URLs) == 0 {
+                cn.URLs = cfg.Global.URLs
+            }
+            if len(cn.URLs) == 0 {
+                continue
+            }
 
-        // Set Interval
-        if cn.Interval == "" {
-            cn.Interval = cfg.Global.Interval
-        }
-        cnInterval, _ := time.ParseDuration(cn.Interval)
-        if cnInterval == 0 {
-            log.Fatal("[error] setting connection interval: invalid duration")
-        }
+            // Set default ContentEncoding
+            if cn.ContentEncoding == "" {
+                cn.ContentEncoding = cfg.Global.ContentEncoding
+            }
 
-        // Set Timeout
-        if cn.Timeout == "" {
-            cn.Timeout = cfg.Global.Timeout
-        }
-        cnTimeout, _ := time.ParseDuration(cn.Timeout)
-        if cnTimeout == 0 {
-            log.Fatal("[error] setting connection timeout: invalid duration")
-        }
+            // Set Interval
+            if cn.Interval == "" {
+                cn.Interval = cfg.Global.Interval
+            }
+            cnInterval, _ := time.ParseDuration(cn.Interval)
+            if cnInterval == 0 {
+                log.Fatal("[error] setting connection interval: invalid duration")
+            }
 
-        // Set MaxRespTime
-        if cn.MaxRespTime == "" {
-            cn.MaxRespTime = cfg.Global.MaxRespTime
-        }
-        cnMaxRespTime, _ := time.ParseDuration(cn.MaxRespTime)
-        if cnMaxRespTime == 0 {
-            log.Fatal("[error] setting connection max_resp_time: invalid duration")
-        }
+            // Set Timeout
+            if cn.Timeout == "" {
+                cn.Timeout = cfg.Global.Timeout
+            }
+            cnTimeout, _ := time.ParseDuration(cn.Timeout)
+            if cnTimeout == 0 {
+                log.Fatal("[error] setting connection timeout: invalid duration")
+            }
 
-        // Get connections
-        go func(cn *Connection) {
+            // Set MaxRespTime
+            if cn.MaxRespTime == "" {
+                cn.MaxRespTime = cfg.Global.MaxRespTime
+            }
+            cnMaxRespTime, _ := time.ParseDuration(cn.MaxRespTime)
+            if cnMaxRespTime == 0 {
+                log.Fatal("[error] setting connection max_resp_time: invalid duration")
+            }
 
+            // Get connections
             config := client.HttpConfig{
                 URLs: randURLs(cn.URLs),
                 ContentEncoding: cn.ContentEncoding,
             }
-
-            for {
-
-                time.Sleep(time.Duration(rand.Intn(10000)) * time.Millisecond)
-
-                body, err := httpClient.ReadRecords(config, fmt.Sprintf("/api/v1/netmap/records?src_name=%s", hname))
-                if err == nil {
-                    var nrs netstat.NetstatData
-
-                    if err := json.Unmarshal(body, &nrs); err != nil {
-                        log.Printf("[error] %v - /api/v1/netmap/records", err)
-                    } else {
-                        if *debug {
-                            log.Printf("[debug] GET - /api/v1/netmap/records?src_name=%s (%v)", hname, len(nrs.Data))
-                        }
-
-                        for _, nr := range nrs.Data {
-                            if nr.Options.Command == "" {
-                                nr.Options.Command = cn.Command
-                            }
-
-                            if nr.Options.Timeout == 0 {
-                                nr.Options.Timeout = float64(cnTimeout / time.Second)
-                            }
-
-                            if nr.Options.MaxRespTime == 0 {
-                                nr.Options.MaxRespTime = float64(cnMaxRespTime / time.Second)
-                            }
-
-                            err := cacheRecords.Set(cache.GetID(&nr), nr, (nr.Options.Status != "netmap"))
-                            if err != nil {
-                                log.Printf("[error] %v", err)
-                            }
-                        }
-                    }
-
-                }
-                
-                if len(connsChan) < len(cfg.Connections) {
-                    connsChan <- 0
-                }
-
-                time.Sleep(cnInterval)
+            body, err := httpClient.ReadRecords(config, fmt.Sprintf("/api/v1/netmap/records?src_name=%s", hname))
+            if err != nil {
+                log.Printf("[error] %v - /api/v1/netmap/records?src_name=%s", err, hname)
+                continue
             }
-        }(cn)
+
+            var nrs netstat.NetstatData
+            err = json.Unmarshal(body, &nrs)
+            if err != nil {
+                log.Printf("[error] %v - /api/v1/netmap/records?src_name=%s", err, hname)
+                continue
+            }
+
+            if *debug {
+                log.Printf("[debug] GET - /api/v1/netmap/records?src_name=%s (%v)", hname, len(nrs.Data))
+                for _, nr := range nrs.Data {
+                    log.Printf(
+                        "[debug] records name=%s,ip=%s,port=%d,mode=%s,result=%d,response=%f,status=%s", 
+                        nr.RemoteAddr.Name, nr.RemoteAddr.IP, nr.Relation.Port, nr.Relation.Mode, nr.Relation.Result, nr.Relation.Response, nr.Options.Status,
+                    )
+                }
+            }
+
+            for _, nr := range nrs.Data {
+                if nr.Options.Command == "" {
+                    nr.Options.Command = cn.Command
+                }
+
+                if nr.Options.Timeout == 0 {
+                    nr.Options.Timeout = float64(cnTimeout / time.Second)
+                }
+
+                if nr.Options.MaxRespTime == 0 {
+                    nr.Options.MaxRespTime = float64(cnMaxRespTime / time.Second)
+                }
+
+                err := cacheRecords.Set(cache.GetID(&nr), nr, true)
+                if err != nil {
+                    log.Printf("[error] %v", err)
+                }
+            }
+        }
     }
 
     // Сheck connections
@@ -407,134 +402,144 @@ func main() {
         }
 
         for {
+            GetConnections()
 
-            if len(connsChan) == len(cfg.Connections) {
+            var wg sync.WaitGroup
+            var nrr netstat.NetstatData
 
-                var wg sync.WaitGroup
-                var nrr netstat.NetstatData
+            items := cacheRecords.Items("")
 
-                items := cacheRecords.Items("")
+            if *debug {
+                log.Printf("[debug] check started, records in cache (%v)", len(items))
+                for _, nr := range items {
+                    log.Printf(
+                        "[debug] cache name=%s,ip=%s,port=%d,mode=%s,result=%d,response=%f,status=%s", 
+                        nr.RemoteAddr.Name, nr.RemoteAddr.IP, nr.Relation.Port, nr.Relation.Mode, nr.Relation.Result, nr.Relation.Response, nr.Options.Status,
+                    )
+                }
+            }
 
-                if *debug {
-                    log.Printf("[debug] check started, records in cache (%v)", len(items))
+            // Get records
+            for _, nr := range items {
+
+                if nr.Options.Status == "disabled" {
+                    continue
                 }
 
-                // Get records
-                for _, nr := range items {
+                wg.Add(1)
 
-                    if nr.Options.Status == "disabled" {
-                        continue
+                go func(nr cache.SockTable) {
+                    defer wg.Done()
+
+                    result := 0
+                    response := float64(0)
+                    trace := nr.Relation.Trace
+
+                    tags := map[string]string{
+                        "src_name":   nr.LocalAddr.Name,
+                        "src_ip":     nr.LocalAddr.IP.String(),
+                        "dst_name":   nr.RemoteAddr.Name,
+                        "dst_ip":     nr.RemoteAddr.IP.String(),
+                        "port":       fmt.Sprintf("%v", nr.Relation.Port),
+                        "mode":       nr.Relation.Mode,
                     }
+                    timeout := time.Duration(nr.Options.Timeout) * time.Second
 
-                    wg.Add(1)
+                    switch nr.Relation.Mode {
 
-                    go func(nr cache.SockTable) {
-                        defer wg.Done()
+                        case "tcp","udp":
+                            address := fmt.Sprintf("%v:%v", nr.RemoteAddr.IP.String(), nr.Relation.Port)
+                            result, response = dialTimeout(nr.Relation.Mode, address, timeout)
+        
+                            if result == 1 || response >= nr.Options.MaxRespTime {
+                                if nr.Relation.Trace == 0 && nr.Options.Command != "" {
+                                    trace = 1
+                                    go runTrace(nr.Options.Command, tags, config)
+                                }
+                            }
 
-                        result := 0
-                        response := float64(0)
-                        trace := nr.Relation.Trace
+                        case "cmd":
+                            cmd := newTemplate(nr.Relation.Command, tags)
 
-                        tags := map[string]string{
-                            "src_name":   nr.LocalAddr.Name,
-                            "src_ip":     nr.LocalAddr.IP.String(),
-                            "dst_name":   nr.RemoteAddr.Name,
-                            "dst_ip":     nr.RemoteAddr.IP.String(),
-                            "port":       fmt.Sprintf("%v", nr.Relation.Port),
-                            "mode":       nr.Relation.Mode,
-                        }
-                        timeout := time.Duration(nr.Options.Timeout) * time.Second
-
-                        switch nr.Relation.Mode {
-
-                            case "tcp","udp":
-                                address := fmt.Sprintf("%v:%v", nr.RemoteAddr.IP.String(), nr.Relation.Port)
-                                result, response = dialTimeout(nr.Relation.Mode, address, timeout)
-            
-                                if result == 1 || response >= nr.Options.MaxRespTime {
+                            if cmd != "" {
+                                _, response, err = runCommand(cmd, timeout)
+                                if err != nil || response >= nr.Options.MaxRespTime {
+                                    result = 1
                                     if nr.Relation.Trace == 0 && nr.Options.Command != "" {
                                         trace = 1
                                         go runTrace(nr.Options.Command, tags, config)
                                     }
                                 }
+                                
+                            }
 
-                            case "cmd":
-                                cmd := newTemplate(nr.Relation.Command, tags)
+                        default:
+                            return
+                    }
 
-                                if cmd != "" {
-                                    _, response, err = runCommand(cmd, timeout)
-                                    if err != nil || response >= nr.Options.MaxRespTime {
-                                        result = 1
-                                        if nr.Relation.Trace == 0 && nr.Options.Command != "" {
-                                            trace = 1
-                                            go runTrace(nr.Options.Command, tags, config)
-                                        }
-                                    }
-                                    
-                                }
+                    if result == 0 && response < nr.Options.MaxRespTime {
+                        trace = 0
+                    }
 
-                            default:
-                                return
-                        }
+                    if nr.Relation.Response != response {
+                        nr.Relation.Response = response
+                    }
 
-                        if result == 0 && response < nr.Options.MaxRespTime {
-                            trace = 0
-                        }
+                    if nr.Options.Service == "" {
+                        nr.Options.Service = "unknown"
+                    }
 
-                        if nr.Relation.Response != response {
-                            nr.Relation.Response = response
-                        }
+                    if nr.Relation.Result != result || nr.Relation.Trace != trace || nr.Options.AccountID != cfg.Global.AccountID {
+                        nr.Options.AccountID = cfg.Global.AccountID
+                        nr.Relation.Result = result
+                        nr.Relation.Trace = trace
+                        nrr.Data = append(nrr.Data, nr)
+                    }
 
-                        if nr.Options.Service == "" {
-                            nr.Options.Service = "unknown"
-                        }
+                    if *plugin == "telegraf" || *plugin == "windows" {
+                        fmt.Printf(
+                            "netmap,src_name=%s,src_ip=%s,dst_name=%s,dst_ip=%s,service=%s,port=%d,mode=%s result_code=%d,response_time=%f\n", 
+                            nr.LocalAddr.Name,
+                            nr.LocalAddr.IP,
+                            nr.RemoteAddr.Name,
+                            nr.RemoteAddr.IP,
+                            nr.Options.Service,
+                            nr.Relation.Port,
+                            nr.Relation.Mode,
+                            nr.Relation.Result,
+                            nr.Relation.Response,
+                        )
+                    }
 
-                        if nr.Relation.Result != result || nr.Relation.Trace != trace || nr.Options.AccountID != cfg.Global.AccountID {
-                            nr.Options.AccountID = cfg.Global.AccountID
-                            nr.Relation.Result = result
-                            nr.Relation.Trace = trace
-                            nrr.Data = append(nrr.Data, nr)
-                        }
-
-                        if *plugin == "telegraf" || *plugin == "windows" {
-                            fmt.Printf(
-                                "netmap,src_name=%s,src_ip=%s,dst_name=%s,dst_ip=%s,service=%s,port=%d,mode=%s result_code=%d,response_time=%f\n", 
-                                nr.LocalAddr.Name,
-                                nr.LocalAddr.IP,
-                                nr.RemoteAddr.Name,
-                                nr.RemoteAddr.IP,
-                                nr.Options.Service,
-                                nr.Relation.Port,
-                                nr.Relation.Mode,
-                                nr.Relation.Result,
-                                nr.Relation.Response,
-                            )
-                        }
-
-                        err := cacheRecords.Set(cache.GetID(&nr), nr, false)
-                        if err != nil {
-                            log.Printf("[error] %v", err)
-                        }
-
-                    }(nr)
-
-                    wg.Wait()
-
-                }
-
-                if len(nrr.Data) > 0 {
-                        
-                    // Create json
-                    jsn, err := json.Marshal(nrr)
+                    err := cacheRecords.Set(cache.GetID(&nr), nr, false)
                     if err != nil {
                         log.Printf("[error] %v", err)
-                    } else {
-                        if *debug {
-                            log.Printf("[debug] POST - /api/v1/netmap/status (%v)", len(nrr.Data))
-                        }
-                        // Sending status
-                        if err = httpClient.WriteRecords(config, "/api/v1/netmap/status", jsn); err != nil {
-                            log.Printf("[error] %v", err)
+                    }
+
+                }(nr)
+
+                wg.Wait()
+
+            }
+
+            if len(nrr.Data) > 0 {
+                    
+                // Create json
+                jsn, err := json.Marshal(nrr)
+                if err != nil {
+                    log.Printf("[error] %v", err)
+                } else {
+                    // Sending status
+                    if err = httpClient.WriteRecords(config, "/api/v1/netmap/status", jsn); err != nil {
+                        log.Printf("[error] %v", err)
+                    }
+                    if *debug {
+                        log.Printf("[debug] POST - /api/v1/netmap/status (%v)", len(nrr.Data))
+                        for _, nr := range nrr.Data {
+                            log.Printf(
+                                "[debug] status name=%s,ip=%s,port=%d,mode=%s,result=%d,response=%f,status=%s", 
+                                nr.RemoteAddr.Name, nr.RemoteAddr.IP, nr.Relation.Port, nr.Relation.Mode, nr.Relation.Result, nr.Relation.Response, nr.Options.Status,
+                            )
                         }
                     }
                 }
@@ -593,61 +598,43 @@ func main() {
         }
 
         for {
+            GetConnections()
 
-            if len(connsChan) == len(cfg.Connections) {
+            if *debug {
+                log.Print("[debug] netstat started")
+            }
 
-                if *debug {
-                    log.Print("[debug] netstat started")
-                }
+            var nrr netstat.NetstatData
 
-                var nrr netstat.NetstatData
+            options := cache.Options {
+                Status:      cfg.Netstat.Status,
+                Timeout:     float64(netstatTimeout / time.Second),
+                MaxRespTime: float64(netstatMaxRespTime / time.Second),
+                AccountID:   cfg.Global.AccountID,
+            }
 
-                options := cache.Options {
-                    Status:      cfg.Netstat.Status,
-                    Timeout:     float64(netstatTimeout / time.Second),
-                    MaxRespTime: float64(netstatMaxRespTime / time.Second),
-                    AccountID:   cfg.Global.AccountID,
-                }
-
-                nrs, err := netstat.GetSocks(cfg.Netstat.IgnoreHosts, options)
-                if err != nil {
-                    log.Printf("[error] %v", err)
-                } else {
-                    
-                    for _, nr := range nrs.Data {
-
-                        key := cache.GetID(&nr)
-
-                        cr, ok := cacheRecords.Get(key)
-                        if !ok {
-                            nrr.Data = append(nrr.Data, nr)
-
-                            err := cacheRecords.Set(key, nr, true)
-                            if err != nil {
-                                log.Printf("[error] %v", err)
-                            }
-                        } else {
-                            err := cacheRecords.Set(key, cr, true)
-                            if err != nil {
-                                log.Printf("[error] %v", err)
-                            }
-                        }
-                    }
-
-                    if len(nrr.Data) > 0 {
-                        jsn, err := json.Marshal(nrr)
-                        if err != nil {
+            nrs, err := netstat.GetSocks(cfg.Netstat.IgnoreHosts, options)
+            if err != nil {
+                log.Printf("[error] %v", err)
+            } else {
+                if len(nrr.Data) > 0 {
+                    jsn, err := json.Marshal(nrr)
+                    if err != nil {
+                        log.Printf("[error] %v", err)
+                    } else {
+                        if err = httpClient.WriteRecords(config, "/api/v1/netmap/records", jsn); err != nil {
                             log.Printf("[error] %v", err)
-                        } else {
-                            if *debug {
-                                log.Printf("[debug] POST - /api/v1/netmap/netstat (%v)", len(nrr.Data))
-                            }
-                            if err = httpClient.WriteRecords(config, "/api/v1/netmap/netstat", jsn); err != nil {
-                                log.Printf("[error] %v", err)
+                        }
+                        if *debug {
+                            log.Printf("[debug] POST - /api/v1/netmap/records (%v)", len(nrr.Data))
+                            for _, nr := range nrr.Data {
+                                log.Printf(
+                                    "[debug] netstat name=%s,ip=%s,port=%d,mode=%s,result=%d,response=%f,status=%s", 
+                                    nr.RemoteAddr.Name, nr.RemoteAddr.IP, nr.Relation.Port, nr.Relation.Mode, nr.Relation.Result, nr.Relation.Response, nr.Options.Status,
+                                )
                             }
                         }
                     }
-
                 }
             }
 
@@ -674,14 +661,7 @@ func main() {
             jsn, err := json.Marshal(keys)
             if err != nil {
                 log.Printf("[error] %v", err)
-            } else {
-                if *debug {
-                    log.Printf("[debug] DELETE - /api/v1/netmap/records (%v)", len(keys))
-                }
-                if err = httpClient.DelRecords(config, "/api/v1/netmap/records", jsn); err != nil {
-                    log.Printf("[error] %v", err)
-                }
-            }
+            } 
         }
 
         time.Sleep(time.Duration(*interval) * time.Second)

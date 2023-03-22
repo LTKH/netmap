@@ -13,13 +13,12 @@ import (
     "github.com/prometheus/client_golang/prometheus/promhttp"
     "github.com/ltkh/netmap/internal/api/v1"
     "github.com/ltkh/netmap/internal/config"
-    //"github.com/ltkh/netmap/internal/db"
 )
 
 func main() {
 
     // Command-line flag parsing
-	lsAddress      := flag.String("web.listen-address", ":8084", "listen address")
+    lsAddress      := flag.String("web.listen-address", ":8084", "listen address")
     cfFile         := flag.String("config.file", "config/config.yml", "config file")
     lgFile         := flag.String("log.file", "", "log file")
     logMaxSize     := flag.Int("log.max-size", 1, "log max size") 
@@ -51,19 +50,17 @@ func main() {
         log.Fatalf("[error] %v", err)
     }
 
-    // Get cluster records
-    apiV1.ApiGetClusterRecords()
-
     // Enabled listen port
     http.HandleFunc("/-/healthy", func (w http.ResponseWriter, r *http.Request) {
         w.Header().Set("Content-Type", "text/plain")
         w.Write([]byte("OK"))
     })
 
-    http.HandleFunc("/api/v1/netmap/netstat", apiV1.ApiRecords)
+    http.HandleFunc("/api/v1/netmap/status", apiV1.ApiStatus)
+    http.HandleFunc("/api/v1/netmap/netstat", apiV1.ApiNetstat)
     http.HandleFunc("/api/v1/netmap/records", apiV1.ApiRecords)
-    http.HandleFunc("/api/v1/netmap/status", apiV1.ApiRecords)
     http.HandleFunc("/api/v1/netmap/webhook", apiV1.ApiWebhook)
+    http.HandleFunc("/api/v1/netmap/exceptions", apiV1.ApiExceptions)
 
     http.Handle("/metrics", promhttp.Handler())
 
@@ -92,7 +89,6 @@ func main() {
 
     // Daemon mode
     for {
-        //apiV1.ApiDelExpiredItems()
         time.Sleep(600 * time.Second)
     }
 }
