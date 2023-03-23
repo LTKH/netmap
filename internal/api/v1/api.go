@@ -71,7 +71,7 @@ func getHash(text string) string {
 }
 
 func getIdRec(i *config.SockTable) string {
-    return getHash(fmt.Sprintf("%v:%v:%v:%v:%v:%v", i.LocalAddr.IP, i.LocalAddr.Name, i.RemoteAddr.IP, i.RemoteAddr.Name, i.Relation.Mode, i.Relation.Port))
+    return getHash(fmt.Sprintf("%v:%v:%v:%v:%v:%v", i.LocalAddr.IP, i.RemoteAddr.IP, i.Relation.Mode, i.Relation.Port))
 }
 
 func getIdExp(i *config.Exception) string {

@@ -56,9 +56,9 @@ func main() {
         w.Write([]byte("OK"))
     })
 
-    http.HandleFunc("/api/v1/netmap/status", apiV1.ApiStatus)
-    http.HandleFunc("/api/v1/netmap/netstat", apiV1.ApiNetstat)
-    http.HandleFunc("/api/v1/netmap/records", apiV1.ApiRecords)
+    http.HandleFunc("/api/v1/netmap/status", apiV1.ApiStatus)    //Only update (if exists)
+    http.HandleFunc("/api/v1/netmap/netstat", apiV1.ApiNetstat)  //Only added (if not exists)
+    http.HandleFunc("/api/v1/netmap/records", apiV1.ApiRecords)  //Write record
     http.HandleFunc("/api/v1/netmap/webhook", apiV1.ApiWebhook)
     http.HandleFunc("/api/v1/netmap/exceptions", apiV1.ApiExceptions)
 
