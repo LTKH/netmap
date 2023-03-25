@@ -21,7 +21,7 @@ import (
     "github.com/naoina/toml"
     "gopkg.in/natefinch/lumberjack.v2"
     "github.com/ltkh/netmap/internal/netstat"
-    "github.com/ltkh/netmap/internal/cache"
+    //"github.com/ltkh/netmap/internal/cache"
     "github.com/ltkh/netmap/internal/client"
 )
 

@@ -17,7 +17,6 @@ import (
     "encoding/hex"
     "github.com/prometheus/client_golang/prometheus"
     "github.com/ltkh/netmap/internal/config"
-    //"github.com/ltkh/netmap/internal/cache"
     "github.com/ltkh/netmap/internal/client"
     "github.com/ltkh/netmap/internal/db"
 )

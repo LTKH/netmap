@@ -9,7 +9,7 @@ import (
     "regexp"
     "fmt"
     "strings"
-    "github.com/ltkh/netmap/internal/cache"
+    //"github.com/ltkh/netmap/internal/cache"
     ns "github.com/cakturk/go-netstat/netstat"
 )
 
