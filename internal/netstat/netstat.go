@@ -55,7 +55,7 @@ func lookupAddr(ipAddress string) (string, error) {
     return strings.Trim(name[0], "."), nil
 }
 
-func GetSocks(ihosts []string, options config.Options) (NetstatData, error) {
+func GetSocks(ihosts []string, options config.Options, debug bool) (NetstatData, error) {
     var nd NetstatData
     
     // Get hostname
@@ -97,7 +97,9 @@ func GetSocks(ihosts []string, options config.Options) (NetstatData, error) {
                 continue
             }
 
-            log.Printf("[debug] netstat list - %v:%v:%v", addr, e.RemoteAddr.Port, mode)
+            if debug == true {
+                log.Printf("[debug] netstat list - %v:%v:%v", addr, e.RemoteAddr.Port, mode)
+            }
 
             if e.LocalAddr.IP.String() == e.RemoteAddr.IP.String() {
                 continue

@@ -597,7 +597,7 @@ func main() {
                 log.Print("[debug] netstat started")
             }
 
-            nrs, err := netstat.GetSocks(ihosts, options)
+            nrs, err := netstat.GetSocks(ihosts, options, *debug)
             if err != nil {
                 log.Printf("[error] %v", err)
             } else {
