@@ -2,6 +2,7 @@ package sqlite3
 
 import (
     "fmt"
+    //"log"
     "time"
     "regexp"
     "strings"
@@ -65,6 +66,10 @@ func (db *Client) SaveStatus(records []config.SockTable) error {
         if err != nil {
             continue
         }
+
+        if rec.Id == "" {
+            rec.Id = config.GetIdRec(&rec)
+        }
         
         _, err = db.client.Exec(
             sql, 
@@ -94,6 +99,10 @@ func (db *Client) SaveNetstat(records []config.SockTable) error {
         if err != nil {
             continue
         }
+
+        if rec.Id == "" {
+            rec.Id = config.GetIdRec(&rec)
+        }
         
         _, err = db.client.Exec(
             sql, 
@@ -108,7 +117,8 @@ func (db *Client) SaveNetstat(records []config.SockTable) error {
             options, 
         )
         if err != nil {
-            return err
+            //log.Printf("[test] %v", rec.Id)
+            continue
         }
     }
 
@@ -188,6 +198,10 @@ func (db *Client) SaveRecords(records []config.SockTable) error {
         options, err := json.Marshal(rec.Options)
         if err != nil {
             continue
+        }
+
+        if rec.Id == "" {
+            rec.Id = config.GetIdRec(&rec)
         }
         
         _, err = db.client.Exec(

@@ -1,9 +1,14 @@
 package config
 
 import (
-    "io/ioutil"
-    "gopkg.in/yaml.v2"
+    "io"
+    "fmt"
     "net"
+    "time"
+    "io/ioutil"
+    "crypto/sha1"
+    "encoding/hex"
+    "gopkg.in/yaml.v2"
 )
 
 type RecArgs struct {
@@ -84,6 +89,20 @@ type DB struct {
 
 type Notifier struct {
     URLs           []string               `yaml:"urls"`
+}
+
+func getHash(text string) string {
+    h := sha1.New()
+    io.WriteString(h, text)
+    return hex.EncodeToString(h.Sum(nil))
+}
+
+func GetIdRec(i *SockTable) string {
+    return getHash(fmt.Sprintf("%v:%v:%v:%v:%v:%v", i.LocalAddr.IP, i.RemoteAddr.IP, i.Relation.Mode, i.Relation.Port))
+}
+
+func GetIdExp(i *Exception) string {
+    return getHash(fmt.Sprintf("%v:%v", i, time.Now().UTC().Unix()))
 }
 
 func New(filename string) (*Config, error) {

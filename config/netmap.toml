@@ -1,6 +1,6 @@
 [global]
-urls = ["http://localhost:8082"]
-content_encoding = "gzip"
+urls = ["http://localhost:8084"]
+#content_encoding = "gzip"
 account_id = 0
 
 [netstat]
@@ -8,7 +8,7 @@ status = "netstat"
 ignore_hosts = [".*:67"]
 interval = "60s"
 
-[[connections]]
+[connections]
 command = "traceroute -m 3 -p {{ .port }} {{ .dst_name }}"
 interval = "60s"
 max_resp_time = "5s"

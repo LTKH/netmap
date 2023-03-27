@@ -9,12 +9,13 @@ import (
     "regexp"
     "fmt"
     "strings"
+    "github.com/ltkh/netmap/internal/config"
     //"github.com/ltkh/netmap/internal/cache"
     ns "github.com/cakturk/go-netstat/netstat"
 )
 
 type NetstatData struct {
-    Data           []cache.SockTable      `json:"data"`
+    Data           []config.SockTable      `json:"data"`
 }
 
 func Hostname() (string, error) {
@@ -54,7 +55,7 @@ func lookupAddr(ipAddress string) (string, error) {
     return strings.Trim(name[0], "."), nil
 }
 
-func GetSocks(ihosts []string, options cache.Options) (NetstatData, error) {
+func GetSocks(ihosts []string, options config.Options) (NetstatData, error) {
     var nd NetstatData
     
     // Get hostname
@@ -96,10 +97,6 @@ func GetSocks(ihosts []string, options cache.Options) (NetstatData, error) {
                 continue
             }
 
-            //if e.State == ns.Listen {
-            //    continue
-            //}
-
             if e.LocalAddr.IP.String() == e.RemoteAddr.IP.String() {
                 continue
             }
@@ -122,34 +119,34 @@ func GetSocks(ihosts []string, options cache.Options) (NetstatData, error) {
             }
             defer conn.Close()
 
-            //jsn, _ := json.Marshal(e)
-            //log.Printf("[debug] %v", string(jsn))
-
             if e.Process == nil {
                 e.Process = &ns.Process{}
             }
 
-            nd.Data = append(nd.Data, cache.SockTable{
-                LocalAddr: cache.SockAddr{
+            rec := config.SockTable{
+                LocalAddr: config.SockAddr{
                     IP:          e.LocalAddr.IP,
                     Name:        name,
                 },
-                RemoteAddr: cache.SockAddr{
+                RemoteAddr: config.SockAddr{
                     IP:          e.RemoteAddr.IP,
                     Name:        addr,
                 },
-                Relation: cache.Relation{
+                Relation: config.Relation{
                     Mode:        mode,
                     Port:        e.RemoteAddr.Port,
                 },
-                Options: cache.Options {
+                Options: config.Options {
                     Status:      options.Status,
                     Timeout:     options.Timeout,
                     MaxRespTime: options.MaxRespTime,
                     Service:     e.Process.Name,
                     AccountID:   options.AccountID,
                 },
-            })
+            }
+
+            rec.Id = config.GetIdRec(&rec)
+            nd.Data = append(nd.Data, rec)
         }
     }
 

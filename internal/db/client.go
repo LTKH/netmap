@@ -5,7 +5,7 @@ import (
     "github.com/ltkh/netmap/internal/config"
     "github.com/ltkh/netmap/internal/db/cache"
     "github.com/ltkh/netmap/internal/db/sqlite3"
-    "github.com/ltkh/netmap/internal/db/cassandra"
+    //"github.com/ltkh/netmap/internal/db/cassandra"
 )
 
 type DbClient interface {
@@ -42,8 +42,8 @@ func NewClient(config *config.DB) (DbClient, error) {
             return sqlite3.NewClient(config)
         case "cache":
             return cache.NewClient(config)
-        case "cassandra":
-            return cassandra.NewClient(config)
+        //case "cassandra":
+        //    return cassandra.NewClient(config)
     }
     return nil, errors.New("invalid client")
 }

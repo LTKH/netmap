@@ -5,7 +5,7 @@ import (
     "fmt"
     "strconv"
     "net/http"
-    "time"
+    //"time"
     //"errors"
     "compress/gzip"
     "io"
@@ -13,8 +13,8 @@ import (
     "regexp"
     "io/ioutil"
     "encoding/json"
-    "crypto/sha1"
-    "encoding/hex"
+    //"crypto/sha1"
+    //"encoding/hex"
     "github.com/prometheus/client_golang/prometheus"
     "github.com/ltkh/netmap/internal/config"
     "github.com/ltkh/netmap/internal/client"
@@ -63,20 +63,6 @@ type ExceptionData struct {
     Data         []config.Exception        `json:"data"`
 }
 
-func getHash(text string) string {
-    h := sha1.New()
-    io.WriteString(h, text)
-    return hex.EncodeToString(h.Sum(nil))
-}
-
-func getIdRec(i *config.SockTable) string {
-    return getHash(fmt.Sprintf("%v:%v:%v:%v:%v:%v", i.LocalAddr.IP, i.RemoteAddr.IP, i.Relation.Mode, i.Relation.Port))
-}
-
-func getIdExp(i *config.Exception) string {
-    return getHash(fmt.Sprintf("%v:%v", i, time.Now().UTC().Unix()))
-}
-
 func readUserIP(r *http.Request) string {
     IPAddress := r.Header.Get("X-Real-Ip")
     if IPAddress == "" {
@@ -114,31 +100,6 @@ func compressData(data []byte, encoding string) (bytes.Buffer, bool, error) {
     return *bytes.NewBuffer(data), false, nil
 }
 
-func readBody(r *http.Request) ([]byte, error) {
-    var body []byte
-    var reader io.ReadCloser
-
-    // Check that the server actual sent compressed data
-    switch r.Header.Get("Content-Encoding") {
-        case "gzip":
-            reader, err := gzip.NewReader(r.Body)
-            if err != nil {
-                return body, err
-            }
-            defer reader.Close()
-        default:
-            reader = r.Body
-    }
-    defer r.Body.Close()
-
-    body, err := ioutil.ReadAll(reader)
-    if err != nil {
-        return body, err
-    }
-
-    return body, nil
-}
-
 func MonRegister(){
     prometheus.MustRegister(resultCode)
     prometheus.MustRegister(responseTime)
@@ -162,7 +123,25 @@ func (api *Api) ApiStatus(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
 
     if r.Method == "POST" {
-        body, err := readBody(r)
+        var reader io.ReadCloser
+
+        // Check that the server actual sent compressed data
+        switch r.Header.Get("Content-Encoding") {
+            case "gzip":
+                reader, err := gzip.NewReader(r.Body)
+                if err != nil {
+                    log.Printf("[error] %v - %s", err, r.URL.Path)
+                    w.WriteHeader(400)
+                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+                    return
+                }
+                defer reader.Close()
+            default:
+                reader = r.Body
+        }
+        defer r.Body.Close()
+
+        body, err := ioutil.ReadAll(reader)
         if err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
             w.WriteHeader(400)
@@ -195,6 +174,59 @@ func (api *Api) ApiStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *Api) ApiNetstat(w http.ResponseWriter, r *http.Request) {
+    w.Header().Set("Content-Type", "application/json")
+
+    if r.Method == "POST" {
+        /*
+        var reader io.ReadCloser
+
+        // Check that the server actual sent compressed data
+        switch r.Header.Get("Content-Encoding") {
+            case "gzip":
+                reader, err := gzip.NewReader(r.Body)
+                if err != nil {
+                    log.Printf("[error] %v - %s", err, r.URL.Path)
+                    w.WriteHeader(400)
+                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+                    return
+                }
+                defer reader.Close()
+            default:
+                reader = r.Body
+        }
+        defer r.Body.Close()
+        */
+
+        body, err := ioutil.ReadAll(r.Body)
+        if err != nil {
+            log.Printf("[error] %v - %s", err, r.URL.Path)
+            w.WriteHeader(400)
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            return
+        }
+
+        //log.Printf("[test] %s", r.URL.Path)
+
+        var netstat NetstatData
+
+        if err := json.Unmarshal(body, &netstat); err != nil {
+            log.Printf("[error] %v - %s", err, r.URL.Path)
+            w.WriteHeader(400)
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            return
+        }
+
+        if err := db.DbClient.SaveNetstat(*api.db, netstat.Data); err != nil {
+            log.Printf("[error] %v - %s", err, r.URL.Path)
+            w.WriteHeader(400)
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            return
+        }
+        
+        w.WriteHeader(204)
+        return
+    }
+
     w.WriteHeader(405)
     w.Write(encodeResp(&Resp{Status:"error", Error:"method not allowed", Data:make([]int, 0)}))
 }
@@ -251,7 +283,25 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
     }
 
     if r.Method == "POST" {
-        body, err := readBody(r)
+        var reader io.ReadCloser
+
+        // Check that the server actual sent compressed data
+        switch r.Header.Get("Content-Encoding") {
+            case "gzip":
+                reader, err := gzip.NewReader(r.Body)
+                if err != nil {
+                    log.Printf("[error] %v - %s", err, r.URL.Path)
+                    w.WriteHeader(400)
+                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+                    return
+                }
+                defer reader.Close()
+            default:
+                reader = r.Body
+        }
+        defer r.Body.Close()
+
+        body, err := ioutil.ReadAll(reader)
         if err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
             w.WriteHeader(400)
@@ -299,7 +349,6 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
             if nr.Type == "" {
                 nr.Type = "out"
             }
-            nr.Id = getIdRec(&nr)
             records = append(records, nr)
         }
 
@@ -315,7 +364,25 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
     }
 
     if r.Method == "DELETE" {
-        body, err := readBody(r)
+        var reader io.ReadCloser
+
+        // Check that the server actual sent compressed data
+        switch r.Header.Get("Content-Encoding") {
+            case "gzip":
+                reader, err := gzip.NewReader(r.Body)
+                if err != nil {
+                    log.Printf("[error] %v - %s", err, r.URL.Path)
+                    w.WriteHeader(400)
+                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+                    return
+                }
+                defer reader.Close()
+            default:
+                reader = r.Body
+        }
+        defer r.Body.Close()
+
+        body, err := ioutil.ReadAll(reader)
         if err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
             w.WriteHeader(400)
@@ -397,7 +464,25 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
     }
 
     if r.Method == "POST" {
-        body, err := readBody(r)
+        var reader io.ReadCloser
+
+        // Check that the server actual sent compressed data
+        switch r.Header.Get("Content-Encoding") {
+            case "gzip":
+                reader, err := gzip.NewReader(r.Body)
+                if err != nil {
+                    log.Printf("[error] %v - %s", err, r.URL.Path)
+                    w.WriteHeader(400)
+                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+                    return
+                }
+                defer reader.Close()
+            default:
+                reader = r.Body
+        }
+        defer r.Body.Close()
+
+        body, err := ioutil.ReadAll(reader)
         if err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
             w.WriteHeader(400)
@@ -418,7 +503,7 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
 
         for _, ex := range expdata.Data {
             if ex.Id == "" {
-                ex.Id = getIdExp(&ex)
+                ex.Id = config.GetIdExp(&ex)
             } 
             exceptions = append(exceptions, ex)
         }
@@ -435,7 +520,25 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
     }
 
     if r.Method == "DELETE" {
-        body, err := readBody(r)
+        var reader io.ReadCloser
+
+        // Check that the server actual sent compressed data
+        switch r.Header.Get("Content-Encoding") {
+            case "gzip":
+                reader, err := gzip.NewReader(r.Body)
+                if err != nil {
+                    log.Printf("[error] %v - %s", err, r.URL.Path)
+                    w.WriteHeader(400)
+                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+                    return
+                }
+                defer reader.Close()
+            default:
+                reader = r.Body
+        }
+        defer r.Body.Close()
+
+        body, err := ioutil.ReadAll(reader)
         if err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
             w.WriteHeader(400)
@@ -472,8 +575,25 @@ func (api *Api) ApiWebhook(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
 
     if r.Method == "POST" {
+        var reader io.ReadCloser
 
-        body, err := readBody(r)
+        // Check that the server actual sent compressed data
+        switch r.Header.Get("Content-Encoding") {
+            case "gzip":
+                reader, err := gzip.NewReader(r.Body)
+                if err != nil {
+                    log.Printf("[error] %v - %s", err, r.URL.Path)
+                    w.WriteHeader(400)
+                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+                    return
+                }
+                defer reader.Close()
+            default:
+                reader = r.Body
+        }
+        defer r.Body.Close()
+
+        body, err := ioutil.ReadAll(reader)
         if err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
             w.WriteHeader(400)
