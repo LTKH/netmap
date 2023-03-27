@@ -13,8 +13,6 @@ import (
     "regexp"
     "io/ioutil"
     "encoding/json"
-    //"crypto/sha1"
-    //"encoding/hex"
     "github.com/prometheus/client_golang/prometheus"
     "github.com/ltkh/netmap/internal/config"
     "github.com/ltkh/netmap/internal/client"
