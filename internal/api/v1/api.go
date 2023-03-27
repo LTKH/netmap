@@ -124,11 +124,12 @@ func (api *Api) ApiStatus(w http.ResponseWriter, r *http.Request) {
 
     if r.Method == "POST" {
         var reader io.ReadCloser
+        var err error
 
         // Check that the server actual sent compressed data
         switch r.Header.Get("Content-Encoding") {
             case "gzip":
-                reader, err := gzip.NewReader(r.Body)
+                reader, err = gzip.NewReader(r.Body)
                 if err != nil {
                     log.Printf("[error] %v - %s", err, r.URL.Path)
                     w.WriteHeader(400)
@@ -177,13 +178,13 @@ func (api *Api) ApiNetstat(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
 
     if r.Method == "POST" {
-        /*
         var reader io.ReadCloser
+        var err error
 
         // Check that the server actual sent compressed data
         switch r.Header.Get("Content-Encoding") {
             case "gzip":
-                reader, err := gzip.NewReader(r.Body)
+                reader, err = gzip.NewReader(r.Body)
                 if err != nil {
                     log.Printf("[error] %v - %s", err, r.URL.Path)
                     w.WriteHeader(400)
@@ -195,9 +196,8 @@ func (api *Api) ApiNetstat(w http.ResponseWriter, r *http.Request) {
                 reader = r.Body
         }
         defer r.Body.Close()
-        */
 
-        body, err := ioutil.ReadAll(r.Body)
+        body, err := ioutil.ReadAll(reader)
         if err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
             w.WriteHeader(400)
@@ -284,11 +284,12 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
 
     if r.Method == "POST" {
         var reader io.ReadCloser
+        var err error
 
         // Check that the server actual sent compressed data
         switch r.Header.Get("Content-Encoding") {
             case "gzip":
-                reader, err := gzip.NewReader(r.Body)
+                reader, err = gzip.NewReader(r.Body)
                 if err != nil {
                     log.Printf("[error] %v - %s", err, r.URL.Path)
                     w.WriteHeader(400)
@@ -365,11 +366,12 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
 
     if r.Method == "DELETE" {
         var reader io.ReadCloser
+        var err error
 
         // Check that the server actual sent compressed data
         switch r.Header.Get("Content-Encoding") {
             case "gzip":
-                reader, err := gzip.NewReader(r.Body)
+                reader, err = gzip.NewReader(r.Body)
                 if err != nil {
                     log.Printf("[error] %v - %s", err, r.URL.Path)
                     w.WriteHeader(400)
@@ -465,11 +467,12 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
 
     if r.Method == "POST" {
         var reader io.ReadCloser
+        var err error
 
         // Check that the server actual sent compressed data
         switch r.Header.Get("Content-Encoding") {
             case "gzip":
-                reader, err := gzip.NewReader(r.Body)
+                reader, err = gzip.NewReader(r.Body)
                 if err != nil {
                     log.Printf("[error] %v - %s", err, r.URL.Path)
                     w.WriteHeader(400)
@@ -521,11 +524,12 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
 
     if r.Method == "DELETE" {
         var reader io.ReadCloser
+        var err error
 
         // Check that the server actual sent compressed data
         switch r.Header.Get("Content-Encoding") {
             case "gzip":
-                reader, err := gzip.NewReader(r.Body)
+                reader, err = gzip.NewReader(r.Body)
                 if err != nil {
                     log.Printf("[error] %v - %s", err, r.URL.Path)
                     w.WriteHeader(400)
@@ -576,11 +580,12 @@ func (api *Api) ApiWebhook(w http.ResponseWriter, r *http.Request) {
 
     if r.Method == "POST" {
         var reader io.ReadCloser
+        var err error
 
         // Check that the server actual sent compressed data
         switch r.Header.Get("Content-Encoding") {
             case "gzip":
-                reader, err := gzip.NewReader(r.Body)
+                reader, err = gzip.NewReader(r.Body)
                 if err != nil {
                     log.Printf("[error] %v - %s", err, r.URL.Path)
                     w.WriteHeader(400)

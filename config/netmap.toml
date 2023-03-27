@@ -1,11 +1,11 @@
 [global]
 urls = ["http://localhost:8084"]
-#content_encoding = "gzip"
+content_encoding = "gzip"
 account_id = 0
 
 [netstat]
 status = "netstat"
-ignore_hosts = [".*:67"]
+ignore_hosts = []
 interval = "60s"
 
 [connections]

@@ -97,6 +97,8 @@ func GetSocks(ihosts []string, options config.Options) (NetstatData, error) {
                 continue
             }
 
+            log.Printf("[debug] netstat list - %v:%v:%v", addr, e.RemoteAddr.Port, mode)
+
             if e.LocalAddr.IP.String() == e.RemoteAddr.IP.String() {
                 continue
             }
