@@ -53,14 +53,6 @@ type Resp struct {
     Data         interface{}               `json:"data"`
 }
 
-type NetstatData struct {
-    Data         []config.SockTable        `json:"data"`
-}
-
-type ExceptionData struct {
-    Data         []config.Exception        `json:"data"`
-}
-
 func readUserIP(r *http.Request) string {
     IPAddress := r.Header.Get("X-Real-Ip")
     if IPAddress == "" {
@@ -148,7 +140,7 @@ func (api *Api) ApiStatus(w http.ResponseWriter, r *http.Request) {
             return
         }
 
-        var netstat NetstatData
+        var netstat config.NetstatData
 
         if err := json.Unmarshal(body, &netstat); err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
@@ -203,9 +195,7 @@ func (api *Api) ApiNetstat(w http.ResponseWriter, r *http.Request) {
             return
         }
 
-        //log.Printf("[test] %s", r.URL.Path)
-
-        var netstat NetstatData
+        var netstat config.NetstatData
 
         if err := json.Unmarshal(body, &netstat); err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
@@ -252,6 +242,14 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
                         return
                     }
                     args.Timestamp = int64(i)
+                case "account_id":
+                    i, err := strconv.Atoi(v[0])
+                    if err != nil {
+                        w.WriteHeader(400)
+                        w.Write(encodeResp(&Resp{Status:"error", Error:fmt.Sprintf("executing query: invalid parameter: %v", k), Data:make([]int, 0)}))
+                        return
+                    }
+                    args.AccountID = uint32(i)
             }
         }
 
@@ -308,7 +306,7 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
             return
         }
 
-        var netstat NetstatData
+        var netstat config.NetstatData
 
         if err := json.Unmarshal(body, &netstat); err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
@@ -345,9 +343,7 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
                 log.Printf("[error] parameter missing Relation.Mode, sender - %s", rhost)
                 continue
             }
-            if nr.Type == "" {
-                nr.Type = "out"
-            }
+            nr.Id = config.GetIdRec(&nr)
             records = append(records, nr)
         }
 
@@ -491,7 +487,7 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
             return
         }
 
-        var expdata ExceptionData
+        var expdata config.ExceptionData
 
         if err := json.Unmarshal(body, &expdata); err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)

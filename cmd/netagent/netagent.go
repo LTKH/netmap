@@ -56,6 +56,7 @@ type Netstat struct {
     URLs             []string                `toml:"urls"`
     ContentEncoding  string                  `toml:"content_encoding"`
     Status           string                  `toml:"status"`
+    Incoming         bool                    `toml:"incoming"`
     IgnoreHosts      []string                `toml:"ignore_hosts"`
     Interval         string                  `toml:"interval"`
     Timeout          string                  `toml:"timeout"`
@@ -85,6 +86,10 @@ type Alert struct {
 
 type Annotations struct {
     Description      string                  `json:"description"`
+}
+
+type ExceptionData struct {
+    Data             []config.Exception      `json:"data"`
 }
 
 func randURLs(urls []string) []string {
@@ -231,6 +236,24 @@ func getConnections(cfg Config, hname string, debug bool){
         return
     }
 
+    // Set Timeout
+    if cfg.Connections.Timeout == "" {
+        cfg.Connections.Timeout = cfg.Global.Timeout
+    }
+    cnTimeout, _ := time.ParseDuration(cfg.Connections.Timeout)
+    if cnTimeout == 0 {
+        log.Fatal("[error] setting connection timeout: invalid duration")
+    }
+
+    // Set MaxRespTime
+    if cfg.Connections.MaxRespTime == "" {
+        cfg.Connections.MaxRespTime = cfg.Global.MaxRespTime
+    }
+    cnMaxRespTime, _ := time.ParseDuration(cfg.Connections.MaxRespTime)
+    if cnMaxRespTime == 0 {
+        log.Fatal("[error] setting connection max_resp_time: invalid duration")
+    }
+
     // Get connections
     clnt := client.HttpConfig{
         URLs: randURLs(cfg.Connections.URLs),
@@ -250,21 +273,20 @@ func getConnections(cfg Config, hname string, debug bool){
         return
     }
 
-    cacheRecords.DelAll()
-
     if debug {
         log.Printf("[debug] GET - /api/v1/netmap/records?src_name=%s (%v)", hname, len(nrs.Data))
-        log.Printf("[debug] deleting records with matching index")
     }   
 
     if debug {
         for _, nr := range nrs.Data {
             log.Printf(
-                "[debug] records name=%s,ip=%s,port=%d,mode=%s,result=%d,response=%f,status=%s", 
+                "[debug] record name=%s,ip=%s,port=%d,mode=%s,result=%d,response=%f,status=%s", 
                 nr.RemoteAddr.Name, nr.RemoteAddr.IP, nr.Relation.Port, nr.Relation.Mode, nr.Relation.Result, nr.Relation.Response, nr.Options.Status,
             )
         }
     }
+
+    timestamp := time.Now().UTC().Unix()
 
     for _, nr := range nrs.Data {
         if nr.Options.Command == "" {
@@ -272,17 +294,22 @@ func getConnections(cfg Config, hname string, debug bool){
         }
 
         if nr.Options.Timeout == 0 {
-            nr.Options.Timeout = 5
+            nr.Options.Timeout = float64(cnTimeout / time.Second)
         }
 
         if nr.Options.MaxRespTime == 0 {
-            nr.Options.MaxRespTime = 10
+            nr.Options.MaxRespTime = float64(cnMaxRespTime / time.Second)
         }
 
-        err := cacheRecords.Set(config.GetIdRec(&nr), nr)
+        err := cacheRecords.Set(config.GetIdRec(&nr), nr, timestamp)
         if err != nil {
             log.Printf("[error] %v", err)
         }
+    }
+
+    count := cacheRecords.DelExpiredItems(timestamp)
+    if debug {
+        log.Printf("[debug] removed old records from cache (%d)", count)
     }
 }
 
@@ -342,6 +369,15 @@ func main() {
     globalInterval, _ := time.ParseDuration(cfg.Global.Interval)
     if globalInterval == 0 {
         log.Fatal("[error] setting global interval: invalid duration")
+    }
+
+    // Set Interval
+    if cfg.Connections.Interval == "" {
+        cfg.Connections.Interval = cfg.Global.Interval
+    }
+    connectionsInterval, _ := time.ParseDuration(cfg.Connections.Interval)
+    if connectionsInterval == 0 {
+        log.Fatal("[error] setting connection interval: invalid duration")
     }
 
     // Get hostname
@@ -492,7 +528,7 @@ func main() {
                         )
                     }
 
-                    err := cacheRecords.Set(config.GetIdRec(&nr), nr)
+                    err := cacheRecords.Set(config.GetIdRec(&nr), nr, time.Now().UTC().Unix())
                     if err != nil {
                         log.Printf("[error] %v", err)
                     }
@@ -526,7 +562,7 @@ func main() {
                 }
             }
             
-            time.Sleep(globalInterval)
+            time.Sleep(connectionsInterval)
         }
     }()
 
@@ -588,41 +624,69 @@ func main() {
                 AccountID:   cfg.Global.AccountID,
             }
 
+            // Get exceptions
             ihosts := cfg.Netstat.IgnoreHosts
-            for _, nr := range cacheRecords.Items() {
-                ihosts = append(ihosts, fmt.Sprintf("%v:%v", nr.RemoteAddr.Name, nr.Relation.Port))
-            }
-
-            if *debug {
-                log.Print("[debug] netstat started")
-            }
-
-            nrs, err := netstat.GetSocks(ihosts, options, *debug)
+            body, err := httpClient.ReadRecords(clnt, fmt.Sprintf("/api/v1/netmap/exceptions?account_id=%d", cfg.Global.AccountID))
             if err != nil {
-                log.Printf("[error] %v", err)
+                log.Printf("[error] %v - /api/v1/netmap/exceptions?account_id=%d", err, cfg.Global.AccountID)
             } else {
-                if len(nrs.Data) > 0 {
-                    jsn, err := json.Marshal(nrs)
+
+                var exp config.ExceptionData
+                err = json.Unmarshal(body, &exp)
+                if err != nil {
+                    log.Printf("[error] %v - /api/v1/netmap/exceptions?account_id=%d", err, cfg.Global.AccountID)
+                } else {
+
+                    if *debug {
+                        log.Printf("[debug] GET - /api/v1/netmap/exceptions (%v)", len(exp.Data))
+                        for _, ex := range exp.Data {
+                            log.Printf(
+                                "[debug] exception accountID=%d,hostMask=%s,ignoreMask=%s", 
+                                ex.AccountID, ex.HostMask, ex.IgnoreMask,
+                            )
+                        }
+                    }
+
+                    for _, ex := range exp.Data {
+                        ihosts = append(ihosts, ex.IgnoreMask)
+                    }
+
+                    //for _, nr := range cacheRecords.Items() {
+                    //    ihosts = append(ihosts, fmt.Sprintf("%v:%v", nr.RemoteAddr.Name, nr.Relation.Port))
+                    //}
+
+                    if *debug {
+                        log.Print("[debug] netstat started")
+                    }
+
+                    nrs, err := netstat.GetSocks(ihosts, options, cfg.Netstat.Incoming, *debug)
                     if err != nil {
                         log.Printf("[error] %v", err)
                     } else {
-                        if err = httpClient.WriteRecords(clnt, "/api/v1/netmap/netstat", jsn); err != nil {
-                            log.Printf("[error] %v", err)
-                        } else {
-                            if *debug {
-                                log.Printf("[debug] POST - /api/v1/netmap/netstat (%v)", len(nrs.Data))
-                                for _, nr := range nrs.Data {
-                                    log.Printf(
-                                        "[debug] netstat name=%s,ip=%s,port=%d,mode=%s,result=%d,response=%f,status=%s", 
-                                        nr.RemoteAddr.Name, nr.RemoteAddr.IP, nr.Relation.Port, nr.Relation.Mode, nr.Relation.Result, nr.Relation.Response, nr.Options.Status,
-                                    )
+                        if len(nrs.Data) > 0 {
+                            jsn, err := json.Marshal(nrs)
+                            if err != nil {
+                                log.Printf("[error] %v", err)
+                            } else {
+                                if err = httpClient.WriteRecords(clnt, "/api/v1/netmap/netstat", jsn); err != nil {
+                                    log.Printf("[error] %v", err)
+                                } else {
+                                    if *debug {
+                                        log.Printf("[debug] POST - /api/v1/netmap/netstat (%v)", len(nrs.Data))
+                                        for _, nr := range nrs.Data {
+                                            log.Printf(
+                                                "[debug] netstat name=%s,ip=%s,port=%d,mode=%s,result=%d,response=%f,status=%s", 
+                                                nr.RemoteAddr.Name, nr.RemoteAddr.IP, nr.Relation.Port, nr.Relation.Mode, nr.Relation.Result, nr.Relation.Response, nr.Options.Status,
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
+
                 }
             }
-
             time.Sleep(netstatInterval)
         }
     }()

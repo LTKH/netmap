@@ -55,7 +55,7 @@ func lookupAddr(ipAddress string) (string, error) {
     return strings.Trim(name[0], "."), nil
 }
 
-func GetSocks(ihosts []string, options config.Options, debug bool) (NetstatData, error) {
+func GetSocks(ihosts []string, options config.Options, incoming, debug bool) (NetstatData, error) {
     var nd NetstatData
     
     // Get hostname
@@ -86,26 +86,15 @@ func GetSocks(ihosts []string, options config.Options, debug bool) (NetstatData,
 
         for _, e := range socks {
 
-            id := fmt.Sprintf("%v:%v:%v", e.RemoteAddr.IP, e.RemoteAddr.Port, mode)
-            if _, ok := ks[id]; ok {
-                continue
-            }
-            ks[id] = id
-
-            addr, err := lookupAddr(e.RemoteAddr.IP.String())
-            if err != nil {
-                continue
-            }
-
-            if debug == true {
-                log.Printf("[debug] netstat list - %v:%v:%v", addr, e.RemoteAddr.Port, mode)
-            }
-
-            if e.LocalAddr.IP.String() == e.RemoteAddr.IP.String() {
-                continue
+            if len(nd.Data) > 100 {
+                break
             }
 
             if e.RemoteAddr.IP.String() == "0.0.0.0" {
+                continue
+            }
+
+            if e.LocalAddr.IP.String() == e.RemoteAddr.IP.String() {
                 continue
             }
 
@@ -113,15 +102,15 @@ func GetSocks(ihosts []string, options config.Options, debug bool) (NetstatData,
                 continue
             }
 
-            if ignoreHosts(addr, e.RemoteAddr.Port, ihosts){
+            addr, err := lookupAddr(e.RemoteAddr.IP.String())
+            if err != nil {
+                log.Printf("[error] %v", err)
                 continue
             }
 
-            conn, err := net.DialTimeout(mode, e.RemoteAddr.String(), 3 * time.Second)
-            if err != nil {
+            if ignoreHosts(addr, e.RemoteAddr.Port, ihosts){
                 continue
             }
-            defer conn.Close()
 
             if e.Process == nil {
                 e.Process = &ns.Process{}
@@ -149,8 +138,50 @@ func GetSocks(ihosts []string, options config.Options, debug bool) (NetstatData,
                 },
             }
 
+            if _, ok := ks[config.GetIdRec(&rec)]; ok {
+                continue
+            }
+
+            conOut, err := net.DialTimeout(mode, e.RemoteAddr.String(), 3 * time.Second)
+            if err != nil {
+
+                if incoming {
+
+                    if ignoreHosts(name, e.LocalAddr.Port, ihosts){
+                        continue
+                    }
+
+                    conIn, err := net.DialTimeout(mode, e.LocalAddr.String(), 3 * time.Second)
+                    if err != nil {
+                        continue
+                    }
+                    conIn.Close()
+
+                    rec.LocalAddr.IP = e.RemoteAddr.IP
+                    rec.LocalAddr.Name = addr
+                    rec.RemoteAddr.IP = e.LocalAddr.IP
+                    rec.RemoteAddr.Name = name
+                    rec.Relation.Port = e.LocalAddr.Port
+
+                    if _, ok := ks[config.GetIdRec(&rec)]; ok {
+                        continue
+                    }
+                    
+                } else {
+                    continue
+                }
+
+            } else {
+                conOut.Close()
+            }
+
+            if debug == true {
+                log.Printf("[debug] netstat list %v:%v - %v:%v (%v)", e.LocalAddr.IP.String(), e.LocalAddr.Port, e.RemoteAddr.IP.String(), e.RemoteAddr.Port, mode)
+            }
+            
             rec.Id = config.GetIdRec(&rec)
             nd.Data = append(nd.Data, rec)
+            ks[rec.Id] = rec.Id
         }
     }
 

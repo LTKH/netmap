@@ -16,6 +16,7 @@ type RecArgs struct {
     SrcName        string
     Timestamp      int64
     Type           string
+    AccountID      uint32
 }
 
 type ExpArgs struct {
@@ -34,8 +35,7 @@ type Exception struct {
 // SockTable type represents each line of the /cmd/[tcp|udp]
 type SockTable struct {
     Id             string                 `json:"id,omitempty"`
-    Type           string                 `json:"type"`
-    Timestamp      int64                  `json:"time"`
+    Timestamp      int64                  `json:"timestamp"`
     LocalAddr      SockAddr               `json:"localAddr"`
     RemoteAddr     SockAddr               `json:"remoteAddr"`
     Relation       Relation               `json:"relation"`
@@ -89,6 +89,14 @@ type DB struct {
 
 type Notifier struct {
     URLs           []string               `yaml:"urls"`
+}
+
+type ExceptionData struct {
+    Data           []Exception            `json:"data"`
+}
+
+type NetstatData struct {
+    Data           []SockTable            `json:"data"`
 }
 
 func getHash(text string) string {

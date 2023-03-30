@@ -4,7 +4,8 @@ content_encoding = "gzip"
 account_id = 0
 
 [netstat]
-status = "netstat"
+status = "disabled"
+incoming = true
 ignore_hosts = []
 interval = "60s"
 

@@ -35,7 +35,6 @@ func (db *Client) CreateTables() error {
     _, err := db.client.Exec(
       `create table if not exists records (
         id            varchar(50) primary key,
-        type          varchar(10) not null,
         timestamp     bigint(20) default 0,
         localName     varchar(50) not null,
         localIP       varchar(20) not null,
@@ -64,11 +63,12 @@ func (db *Client) SaveStatus(records []config.SockTable) error {
 
         relation, err := json.Marshal(rec.Relation)
         if err != nil {
+            return err
             continue
         }
 
         if rec.Id == "" {
-            rec.Id = config.GetIdRec(&rec)
+            continue
         }
         
         _, err = db.client.Exec(
@@ -86,8 +86,7 @@ func (db *Client) SaveStatus(records []config.SockTable) error {
 }
 
 func (db *Client) SaveNetstat(records []config.SockTable) error {
-    sql := "insert into records (id,type,timestamp,localName,localIP,remoteName,remoteIP,relation,options) values (?,?,?,?,?,?,?,?,?)"
-
+    
     for _, rec := range records {
 
         relation, err := json.Marshal(rec.Relation)
@@ -101,13 +100,12 @@ func (db *Client) SaveNetstat(records []config.SockTable) error {
         }
 
         if rec.Id == "" {
-            rec.Id = config.GetIdRec(&rec)
+            continue
         }
         
         _, err = db.client.Exec(
-            sql, 
+            "insert into records (id,timestamp,localName,localIP,remoteName,remoteIP,relation,options) values (?,?,?,?,?,?,?,?)", 
             rec.Id, 
-            rec.Type,
             time.Now().UTC().Unix(),
             rec.LocalAddr.Name, 
             rec.LocalAddr.IP, 
@@ -117,7 +115,11 @@ func (db *Client) SaveNetstat(records []config.SockTable) error {
             options, 
         )
         if err != nil {
-            //log.Printf("[test] %v", rec.Id)
+            db.client.Exec(
+                "update records set timestamp = ? where id = ?", 
+                time.Now().UTC().Unix(), 
+                rec.Id,
+            )
             continue
         }
     }
@@ -130,7 +132,7 @@ func (db *Client) LoadRecords(args config.RecArgs) ([]config.SockTable, error) {
     swhere := []string{}
     awhere := []interface{}{}
 
-    sql := "select id,type,timestamp,localName,localIP,remoteName,remoteIP,relation,options from records order by id"
+    sql := "select id,timestamp,localName,localIP,remoteName,remoteIP,relation,options from records order by id"
 
     if args.Id != "" {
         swhere = append(swhere, "id = ?")
@@ -150,7 +152,7 @@ func (db *Client) LoadRecords(args config.RecArgs) ([]config.SockTable, error) {
     }
 
     if len(swhere) > 0 {
-        sql = fmt.Sprintf("select id,type,timestamp,localName,localIP,remoteName,remoteIP,relation,options from records where %v order by id", strings.Join(swhere, " AND "))
+        sql = fmt.Sprintf("select id,timestamp,localName,localIP,remoteName,remoteIP,relation,options from records where %v order by id", strings.Join(swhere, " AND "))
     }
 
     rows, err := db.client.Query(sql, awhere...)
@@ -165,7 +167,6 @@ func (db *Client) LoadRecords(args config.RecArgs) ([]config.SockTable, error) {
         var options []uint8
         err := rows.Scan(
             &rec.Id, 
-            &rec.Type,
             &rec.Timestamp,
             &rec.LocalAddr.Name, 
             &rec.LocalAddr.IP, 
@@ -186,7 +187,7 @@ func (db *Client) LoadRecords(args config.RecArgs) ([]config.SockTable, error) {
 }
 
 func (db *Client) SaveRecords(records []config.SockTable) error {
-    sql := "replace into records (id,type,timestamp,localName,localIP,remoteName,remoteIP,relation,options) values (?,?,?,?,?,?,?,?,?)"
+    sql := "replace into records (id,timestamp,localName,localIP,remoteName,remoteIP,relation,options) values (?,?,?,?,?,?,?,?)"
 
     for _, rec := range records {
 
@@ -199,15 +200,10 @@ func (db *Client) SaveRecords(records []config.SockTable) error {
         if err != nil {
             continue
         }
-
-        if rec.Id == "" {
-            rec.Id = config.GetIdRec(&rec)
-        }
         
         _, err = db.client.Exec(
             sql, 
             rec.Id, 
-            rec.Type,
             time.Now().UTC().Unix(),
             rec.LocalAddr.Name, 
             rec.LocalAddr.IP, 

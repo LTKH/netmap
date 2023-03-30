@@ -32,7 +32,7 @@ func NewCacheRecords(limit int) *Records {
     return &cache
 }
 
-func (t *Records) Set(key string, val config.SockTable) error {
+func (t *Records) Set(key string, val config.SockTable, timestamp int64) error {
     t.Lock()
     defer t.Unlock()
 
@@ -42,7 +42,7 @@ func (t *Records) Set(key string, val config.SockTable) error {
     }
 
     val.Id = key
-    val.Timestamp = time.Now().UTC().Unix()
+    val.Timestamp = timestamp
     t.items[key] = val
 
     return nil
@@ -74,17 +74,6 @@ func (t *Records) Del(key string) bool {
     return true
 }
 
-func (t *Records) DelAll() bool {
-    t.Lock()
-    defer t.Unlock()
-
-    for key, _ := range t.items {
-        delete(t.items, key)
-    }
-
-    return true
-}
-
 func (t *Records) Items() []config.SockTable {
     t.RLock()
     defer t.RUnlock()
@@ -96,4 +85,20 @@ func (t *Records) Items() []config.SockTable {
     }
     return items
 
+}
+
+func (t *Records) DelExpiredItems(timestamp int64) int {
+    t.Lock()
+    defer t.Unlock()
+
+    cnt := 0
+
+    for key, val := range t.items {
+        if val.Timestamp < timestamp {
+            delete(t.items, key)
+            cnt = cnt +1
+        }
+    }
+
+    return cnt
 }
