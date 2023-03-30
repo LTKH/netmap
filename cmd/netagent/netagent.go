@@ -624,8 +624,10 @@ func main() {
                 AccountID:   cfg.Global.AccountID,
             }
 
-            // Get exceptions
             ihosts := cfg.Netstat.IgnoreHosts
+            exists := map[string]bool{}
+
+            // Get exceptions
             body, err := httpClient.ReadRecords(clnt, fmt.Sprintf("/api/v1/netmap/exceptions?account_id=%d", cfg.Global.AccountID))
             if err != nil {
                 log.Printf("[error] %v - /api/v1/netmap/exceptions?account_id=%d", err, cfg.Global.AccountID)
@@ -651,15 +653,15 @@ func main() {
                         ihosts = append(ihosts, ex.IgnoreMask)
                     }
 
-                    //for _, nr := range cacheRecords.Items() {
-                    //    ihosts = append(ihosts, fmt.Sprintf("%v:%v", nr.RemoteAddr.Name, nr.Relation.Port))
-                    //}
+                    for _, nr := range cacheRecords.Items() {
+                        exists[nr.Id] = true
+                    }
 
                     if *debug {
                         log.Print("[debug] netstat started")
                     }
 
-                    nrs, err := netstat.GetSocks(ihosts, options, cfg.Netstat.Incoming, *debug)
+                    nrs, err := netstat.GetSocks(ihosts, exists, options, cfg.Netstat.Incoming, *debug)
                     if err != nil {
                         log.Printf("[error] %v", err)
                     } else {

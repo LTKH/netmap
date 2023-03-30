@@ -86,7 +86,7 @@ func (db *Client) SaveStatus(records []config.SockTable) error {
 }
 
 func (db *Client) SaveNetstat(records []config.SockTable) error {
-    
+
     for _, rec := range records {
 
         relation, err := json.Marshal(rec.Relation)

@@ -242,14 +242,6 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
                         return
                     }
                     args.Timestamp = int64(i)
-                case "account_id":
-                    i, err := strconv.Atoi(v[0])
-                    if err != nil {
-                        w.WriteHeader(400)
-                        w.Write(encodeResp(&Resp{Status:"error", Error:fmt.Sprintf("executing query: invalid parameter: %v", k), Data:make([]int, 0)}))
-                        return
-                    }
-                    args.AccountID = uint32(i)
             }
         }
 

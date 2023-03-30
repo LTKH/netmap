@@ -44,6 +44,28 @@ func ignoreHosts(host string, port uint16, ihosts []string) bool {
     return false
 }
 
+func alreadyExists(ids map[string]bool, rec config.SockTable) (config.SockTable, bool) {
+
+    rec.Id = config.GetIdRec(&rec)
+    if _, ok := ids[rec.Id]; ok {
+        return rec, true
+    }
+
+    localAddr := rec.LocalAddr
+    remoteAddr := rec.RemoteAddr
+
+    rec.LocalAddr = remoteAddr
+    rec.LocalAddr = localAddr
+    rec.Relation.Port = localAddr.Port
+
+    rec.Id = config.GetIdRec(&rec)
+    if _, ok := ids[rec.Id]; ok {
+        return rec, true
+    }
+
+    return rec, false
+}
+
 func lookupAddr(ipAddress string) (string, error) {
     name, err := net.LookupAddr(ipAddress)
     if err != nil {
@@ -55,8 +77,10 @@ func lookupAddr(ipAddress string) (string, error) {
     return strings.Trim(name[0], "."), nil
 }
 
-func GetSocks(ihosts []string, options config.Options, incoming, debug bool) (NetstatData, error) {
+func GetSocks(ihosts []string, ids map[string]bool, options config.Options, incoming, debug bool) (NetstatData, error) {
     var nd NetstatData
+    
+    nr := map[string]config.SockTable{}
     
     // Get hostname
     name, err := Hostname()
@@ -82,11 +106,9 @@ func GetSocks(ihosts []string, options config.Options, incoming, debug bool) (Ne
                 }
         }
 
-        ks := make(map[string]string)
-
         for _, e := range socks {
 
-            if len(nd.Data) > 100 {
+            if len(nr) > 1000 {
                 break
             }
 
@@ -119,10 +141,12 @@ func GetSocks(ihosts []string, options config.Options, incoming, debug bool) (Ne
             rec := config.SockTable{
                 LocalAddr: config.SockAddr{
                     IP:          e.LocalAddr.IP,
+                    Port:        e.LocalAddr.Port,
                     Name:        name,
                 },
                 RemoteAddr: config.SockAddr{
                     IP:          e.RemoteAddr.IP,
+                    Port:        e.RemoteAddr.Port,
                     Name:        addr,
                 },
                 Relation: config.Relation{
@@ -138,7 +162,13 @@ func GetSocks(ihosts []string, options config.Options, incoming, debug bool) (Ne
                 },
             }
 
-            if _, ok := ks[config.GetIdRec(&rec)]; ok {
+            if _, ok := nr[config.GetIdRec(&rec)]; ok {
+                continue
+            }
+
+            // Record already exists in the cache
+            if erec, ok := alreadyExists(ids, rec); ok {
+                nr[erec.Id] = erec
                 continue
             }
 
@@ -158,15 +188,17 @@ func GetSocks(ihosts []string, options config.Options, incoming, debug bool) (Ne
                     conIn.Close()
 
                     rec.LocalAddr.IP = e.RemoteAddr.IP
+                    rec.LocalAddr.Port = e.RemoteAddr.Port
                     rec.LocalAddr.Name = addr
                     rec.RemoteAddr.IP = e.LocalAddr.IP
+                    rec.RemoteAddr.Port = e.LocalAddr.Port
                     rec.RemoteAddr.Name = name
                     rec.Relation.Port = e.LocalAddr.Port
 
-                    if _, ok := ks[config.GetIdRec(&rec)]; ok {
+                    if _, ok := nr[config.GetIdRec(&rec)]; ok {
                         continue
                     }
-                    
+
                 } else {
                     continue
                 }
@@ -180,9 +212,12 @@ func GetSocks(ihosts []string, options config.Options, incoming, debug bool) (Ne
             }
             
             rec.Id = config.GetIdRec(&rec)
-            nd.Data = append(nd.Data, rec)
-            ks[rec.Id] = rec.Id
+            nr[rec.Id] = rec
         }
+    }
+
+    for _, rec := range nr {
+        nd.Data = append(nd.Data, rec)
     }
 
     return nd, nil

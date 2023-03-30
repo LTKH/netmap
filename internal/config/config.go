@@ -46,6 +46,7 @@ type SockTable struct {
 type SockAddr struct {
     IP             net.IP                 `json:"ip"`
     Name           string                 `json:"name"`
+    Port           uint16                 `json:"-"`
 }
 
 type Relation struct {
