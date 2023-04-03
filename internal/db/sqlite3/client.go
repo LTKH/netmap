@@ -142,10 +142,6 @@ func (db *Client) LoadRecords(args config.RecArgs) ([]config.SockTable, error) {
         swhere = append(swhere, "localName = ?")
         awhere = append(awhere, args.SrcName)
     }
-    if args.Type != "" {
-        swhere = append(swhere, "type = ?")
-        awhere = append(awhere, args.Type)
-    }
     if args.Timestamp > 0 {
         swhere = append(swhere, "timestamp >= ?")
         awhere = append(awhere, args.Timestamp)

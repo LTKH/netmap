@@ -3,15 +3,13 @@ global:
   cert_key:       ""
   
 db:
-  #client:         "cassandra"
-  #conn_string:    "127.0.0.1"
-  client:         "sqlite3"
-  conn_string:    "/tmp/netmap.db"
+  client:         "couchbase"
+  conn_string:    "127.0.0.1"
+  #client:         "sqlite3"
+  #conn_string:    "/tmp/netmap.db"
   limit:          1000000
-  flush_interval: "24h"
-  username:       "cassandra"
+  username:       "couchbase"
   password:       "fvjPxwfcHP"
-
 
 notifier:
   urls:           []

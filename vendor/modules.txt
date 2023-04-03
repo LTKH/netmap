@@ -5,19 +5,24 @@ github.com/beorn7/perks/quantile
 github.com/cakturk/go-netstat/netstat
 # github.com/cespare/xxhash/v2 v2.1.2
 github.com/cespare/xxhash/v2
+# github.com/couchbase/gocb/v2 v2.6.2
+## explicit
+github.com/couchbase/gocb/v2
+github.com/couchbase/gocb/v2/search
+# github.com/couchbase/gocbcore/v10 v10.2.2
+github.com/couchbase/gocbcore/v10
+github.com/couchbase/gocbcore/v10/connstr
+github.com/couchbase/gocbcore/v10/memd
+github.com/couchbase/gocbcore/v10/scram
 # github.com/gocql/gocql v1.3.1
 ## explicit
-github.com/gocql/gocql
-github.com/gocql/gocql/internal/lru
-github.com/gocql/gocql/internal/murmur
-github.com/gocql/gocql/internal/streams
 # github.com/golang/protobuf v1.5.2
 github.com/golang/protobuf/proto
 github.com/golang/protobuf/ptypes/timestamp
-# github.com/golang/snappy v0.0.3
+# github.com/golang/snappy v0.0.4
 github.com/golang/snappy
-# github.com/hailocab/go-hostpool v0.0.0-20160125115350-e80d13ce29ed
-github.com/hailocab/go-hostpool
+# github.com/google/uuid v1.3.0
+github.com/google/uuid
 # github.com/mattn/go-sqlite3 v1.14.16
 ## explicit
 github.com/mattn/go-sqlite3
@@ -81,8 +86,6 @@ google.golang.org/protobuf/runtime/protoiface
 google.golang.org/protobuf/runtime/protoimpl
 google.golang.org/protobuf/types/descriptorpb
 google.golang.org/protobuf/types/known/timestamppb
-# gopkg.in/inf.v0 v0.9.1
-gopkg.in/inf.v0
 # gopkg.in/natefinch/lumberjack.v2 v2.0.0
 ## explicit
 gopkg.in/natefinch/lumberjack.v2

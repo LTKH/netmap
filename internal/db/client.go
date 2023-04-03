@@ -5,6 +5,7 @@ import (
     "github.com/ltkh/netmap/internal/config"
     "github.com/ltkh/netmap/internal/db/cache"
     "github.com/ltkh/netmap/internal/db/sqlite3"
+    "github.com/ltkh/netmap/internal/db/couchbase"
     //"github.com/ltkh/netmap/internal/db/cassandra"
 )
 
@@ -12,8 +13,8 @@ type DbClient interface {
     CreateTables() error
     Close() error
 
-	SaveStatus(records []config.SockTable) error
-	SaveNetstat(records []config.SockTable) error
+    SaveStatus(records []config.SockTable) error
+    SaveNetstat(records []config.SockTable) error
 
     LoadRecords(args config.RecArgs) ([]config.SockTable, error)
     SaveRecords(records []config.SockTable) error
@@ -38,12 +39,14 @@ func NewClient(config *config.DB) (DbClient, error) {
     switch config.Client {
         //case "mysql":
         //    return mysql.NewClient(config)
+        //case "cassandra":
+        //    return cassandra.NewClient(config)
         case "sqlite3":
             return sqlite3.NewClient(config)
         case "cache":
             return cache.NewClient(config)
-        //case "cassandra":
-        //    return cassandra.NewClient(config)
+        case "couchbase":
+            return couchbase.NewClient(config)
     }
     return nil, errors.New("invalid client")
 }

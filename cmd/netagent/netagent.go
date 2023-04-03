@@ -275,9 +275,6 @@ func getConnections(cfg Config, hname string, debug bool){
 
     if debug {
         log.Printf("[debug] GET - /api/v1/netmap/records?src_name=%s (%v)", hname, len(nrs.Data))
-    }   
-
-    if debug {
         for _, nr := range nrs.Data {
             log.Printf(
                 "[debug] record name=%s,ip=%s,port=%d,mode=%s,result=%d,response=%f,status=%s", 
@@ -546,10 +543,6 @@ func main() {
                 if err != nil {
                     log.Printf("[error] %v", err)
                 } else {
-                    // Sending status
-                    if err = httpClient.WriteRecords(clnt, "/api/v1/netmap/status", jsn); err != nil {
-                        log.Printf("[error] %v", err)
-                    }
                     if *debug {
                         log.Printf("[debug] POST - /api/v1/netmap/status (%v)", len(nrr.Data))
                         for _, nr := range nrr.Data {
@@ -558,6 +551,10 @@ func main() {
                                 nr.RemoteAddr.Name, nr.RemoteAddr.IP, nr.Relation.Port, nr.Relation.Mode, nr.Relation.Result, nr.Relation.Response, nr.Options.Status,
                             )
                         }
+                    }
+                    // Sending status
+                    if err = httpClient.WriteRecords(clnt, "/api/v1/netmap/status", jsn); err != nil {
+                        log.Printf("[error] %v", err)
                     }
                 }
             }
@@ -628,15 +625,15 @@ func main() {
             exists := map[string]bool{}
 
             // Get exceptions
-            body, err := httpClient.ReadRecords(clnt, fmt.Sprintf("/api/v1/netmap/exceptions?account_id=%d", cfg.Global.AccountID))
+            body, err := httpClient.ReadRecords(clnt, fmt.Sprintf("/api/v1/netmap/exceptions?src_name=%s&account_id=%d", hname, cfg.Global.AccountID))
             if err != nil {
-                log.Printf("[error] %v - /api/v1/netmap/exceptions?account_id=%d", err, cfg.Global.AccountID)
+                log.Printf("[error] %v - /api/v1/netmap/exceptions?src_name=%s&account_id=%d", err, hname, cfg.Global.AccountID)
             } else {
 
                 var exp config.ExceptionData
                 err = json.Unmarshal(body, &exp)
                 if err != nil {
-                    log.Printf("[error] %v - /api/v1/netmap/exceptions?account_id=%d", err, cfg.Global.AccountID)
+                    log.Printf("[error] %v - /api/v1/netmap/exceptions?src_name=%s&account_id=%d", err, hname, cfg.Global.AccountID)
                 } else {
 
                     if *debug {
@@ -670,23 +667,21 @@ func main() {
                             if err != nil {
                                 log.Printf("[error] %v", err)
                             } else {
-                                if err = httpClient.WriteRecords(clnt, "/api/v1/netmap/netstat", jsn); err != nil {
-                                    log.Printf("[error] %v", err)
-                                } else {
-                                    if *debug {
-                                        log.Printf("[debug] POST - /api/v1/netmap/netstat (%v)", len(nrs.Data))
-                                        for _, nr := range nrs.Data {
-                                            log.Printf(
-                                                "[debug] netstat name=%s,ip=%s,port=%d,mode=%s,result=%d,response=%f,status=%s", 
-                                                nr.RemoteAddr.Name, nr.RemoteAddr.IP, nr.Relation.Port, nr.Relation.Mode, nr.Relation.Result, nr.Relation.Response, nr.Options.Status,
-                                            )
-                                        }
+                                if *debug {
+                                    log.Printf("[debug] POST - /api/v1/netmap/netstat (%v)", len(nrs.Data))
+                                    for _, nr := range nrs.Data {
+                                        log.Printf(
+                                            "[debug] netstat name=%s,ip=%s,port=%d,mode=%s,result=%d,response=%f,status=%s", 
+                                            nr.RemoteAddr.Name, nr.RemoteAddr.IP, nr.Relation.Port, nr.Relation.Mode, nr.Relation.Result, nr.Relation.Response, nr.Options.Status,
+                                        )
                                     }
                                 }
+                                if err = httpClient.WriteRecords(clnt, "/api/v1/netmap/netstat", jsn); err != nil {
+                                    log.Printf("[error] %v", err)
+                                } 
                             }
                         }
                     }
-
                 }
             }
             time.Sleep(netstatInterval)

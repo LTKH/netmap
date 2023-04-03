@@ -83,9 +83,9 @@ type DB struct {
     ConnString     string                 `yaml:"conn_string"`
     HistoryDays    int                    `yaml:"history_days"`
     Limit          int                    `yaml:"limit"`
-    FlushInterval  string                 `yaml:"flush_interval"`
     Username       string                 `yaml:"username"`
     Password       string                 `yaml:"password"`
+    Bucket         string                 `yaml:"bucket"`
 }
 
 type Notifier struct {
