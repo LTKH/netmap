@@ -1,5 +1,5 @@
 [global]
-urls = ["http://localhost:8084"]
+urls = ["http://127.0.0.1:8084"]
 content_encoding = "gzip"
 account_id = 0
 

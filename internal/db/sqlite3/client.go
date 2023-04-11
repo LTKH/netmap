@@ -43,6 +43,8 @@ func (db *Client) CreateTables() error {
         relation      json,
         options       json
       );
+      create index if not exists localNameIdx 
+        ON records (localName);
       create table if not exists exceptions (
         id            varchar(50) primary key,
         accountId     int default 0,
