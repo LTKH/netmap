@@ -3,13 +3,13 @@ global:
   cert_key:       ""
   
 db:
-  #client:         "couchbase"
-  #conn_string:    "127.0.0.1:8090"
+  #client:         "couchdb"
+  #conn_string:    "127.0.0.1:5984"
   client:         "sqlite3"
   conn_string:    "/tmp/netmap.db"
   limit:          1000000
-  username:       "couchbase"
-  password:       "fvjPxwfcHP"
+  username:       "admin"
+  password:       "test"
 
 notifier:
   urls:           []
