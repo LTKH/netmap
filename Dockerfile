@@ -25,9 +25,9 @@ EXPOSE 8084
 #
 #RUN mkdir /data && chown -R $USER_NAME:$GROUP_NAME /data && chmod 755 /data
 
-RUN mkdir /data
+#RUN mkdir /data
 #WORKDIR /data
-#VOLUME ["/data"]
+VOLUME ["/data"]
 
 #USER $USER_NAME
 
