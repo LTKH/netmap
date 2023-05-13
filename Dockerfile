@@ -11,7 +11,7 @@ EXPOSE 8084
 #RUN addgroup -S netgroup && adduser -S netserver -G netgroup -u 1000
 
 WORKDIR /data
-#VOLUME ["/data"]
+VOLUME ["/data"]
 
 #RUN chown -R netserver:netgroup /data && chmod 755 /data
 #USER netserver
