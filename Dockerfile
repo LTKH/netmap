@@ -8,7 +8,7 @@ FROM alpine:latest
 
 EXPOSE 8082
 
-RUN addgroup -S netgroup && adduser -S netuser -G netgroup -u 1000 -s /bin/sh
+RUN addgroup -S netgroup && adduser -S netuser -G netgroup -u 1000 -s sh
 
 WORKDIR /data
 VOLUME ["/data"]
