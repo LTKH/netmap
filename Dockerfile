@@ -25,10 +25,10 @@ EXPOSE 8084
 #
 #RUN mkdir /data && chown -R $USER_NAME:$GROUP_NAME /data && chmod 755 /data
 
-#RUN mkdir /data
-WORKDIR /etc/netserver
-VOLUME ["/etc/netserver"]
+RUN mkdir /var/lib/sqlite3
+VOLUME ["/var/lib/sqlite3"]
 
+#WORKDIR /etc/netserver
 #USER $USER_NAME
 
 COPY --from=builder /bin/netserver /bin/netserver
