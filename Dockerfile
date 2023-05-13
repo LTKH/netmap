@@ -4,7 +4,7 @@ COPY . /src/
 WORKDIR /src/
 RUN go build -o /bin/netserver cmd/netserver/netserver.go
 
-FROM alpine:3.18.0
+FROM centos
 
 EXPOSE 8084
 
