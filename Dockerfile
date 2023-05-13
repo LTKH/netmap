@@ -16,6 +16,7 @@ EXPOSE 8082
 RUN adduser -DH -s /bin/bash -u 1000 netserver
 
 WORKDIR /data
+VOLUME ["/data"]
 
 RUN chown -R netserver:netserver /data
 RUN chmod 755 /data
