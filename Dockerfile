@@ -8,8 +8,7 @@ FROM alpine:latest
 
 EXPOSE 8082
 
-RUN apk add --no-cache bash
-RUN addgroup -S netgroup && adduser -S netuser -G netgroup -u 1000
+RUN addgroup -S netgroup && adduser -S netuser -G netgroup -u 1000 -s /bin/sh
 
 WORKDIR /data
 VOLUME ["/data"]
