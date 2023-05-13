@@ -8,7 +8,7 @@ FROM alpine:latest
 
 EXPOSE 8082
 
-RUN addgroup -S netgroup && adduser -S netuser -G netgroup -u 1000 -s sh
+RUN addgroup -S netgroup && adduser -S netuser -G netgroup -u 1000 -s /bin/sh
 
 WORKDIR /data
 VOLUME ["/data"]
@@ -19,5 +19,5 @@ USER netuser
 COPY --from=builder /bin/netserver /bin/netserver
 COPY config/config.yml /etc/netserver.yml
 
-ENTRYPOINT ["/bin/netserver"]
+ENTRYPOINT ["/bin/sh","/bin/netserver"]
 CMD ["-config.file=/etc/netserver.yml"]
