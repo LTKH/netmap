@@ -1,10 +1,10 @@
-FROM golang:1.19 AS builder
+FROM golang:latest AS builder
 
 COPY . /src/
 WORKDIR /src/
 RUN go build -o /bin/netserver cmd/netserver/netserver.go
 
-FROM alpine:latest
+FROM alpine:3.18.0
 
 EXPOSE 8082
 
