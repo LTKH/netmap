@@ -17,6 +17,7 @@ EXPOSE 8084
 #RUN apk update && \
 #    apk add --no-cache bash curl && \
 #    apk add --allow-untrusted /tmp/*.apk && rm -f /tmp/*.apk
+#RUN apk update && apk add --no-cache bash curl
 
 #RUN addgroup -g $GROUP_ID $GROUP_NAME && \
 #    adduser --shell /sbin/nologin --disabled-password --no-create-home --uid $USER_ID --ingroup $GROUP_NAME $USER_NAME
@@ -28,8 +29,8 @@ WORKDIR /data
 
 #USER $USER_NAME
 
-COPY --from=builder /bin/netserver /bin/netserver
+COPY --from=builder /bin/netserver /netserver
 COPY config/config.yml /etc/netserver.yml
 
-ENTRYPOINT ["/bin/netserver"]
-#CMD ["-config.file=/etc/netserver.yml"]
+ENTRYPOINT ["/netserver"]
+CMD ["-config.file=/etc/netserver.yml"]
