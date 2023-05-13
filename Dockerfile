@@ -4,7 +4,7 @@ COPY . /src/
 WORKDIR /src/
 RUN go build -o /bin/netserver cmd/netserver/netserver.go
 
-FROM alpine:3.15.0
+FROM alpine:latest
 
 ADD https://github.com/sgerrand/alpine-pkg-glibc/releases/download/2.34-r0/glibc-2.34-r0.apk /tmp
 RUN apk update && \
