@@ -13,7 +13,7 @@ FROM alpine:latest
 
 EXPOSE 8082
 
-RUN adduser -s /bin/bash -u 1000 netserver
+RUN adduser -DH -s /bin/bash -u 1000 netserver
 
 WORKDIR /data
 
