@@ -1,15 +1,16 @@
-FROM golang:latest AS builder
+FROM golang:1.20.3 AS builder
 
 COPY . /src/
 WORKDIR /src/
 RUN go build -o /bin/netserver cmd/netserver/netserver.go
 
-FROM centos
+FROM alpine:3.18.0
 
 EXPOSE 8084
 
 #RUN addgroup -S netgroup && adduser -S netserver -G netgroup -u 1000
 
+RUN mkdir /data
 WORKDIR /data
 VOLUME ["/data"]
 
