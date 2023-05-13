@@ -13,6 +13,11 @@ ENV GROUP_ID=1000
 ENV USER_NAME=netserver
 ENV GROUP_NAME=netserver
 
+ADD https://github.com/sgerrand/alpine-pkg-glibc/releases/download/2.34-r0/glibc-2.34-r0.apk /tmp
+RUN apk update && \
+    apk add --no-cache bash curl && \
+    apk add --allow-untrusted /tmp/*.apk && rm -f /tmp/*.apk
+
 RUN addgroup -g $GROUP_ID $GROUP_NAME && \
     adduser --shell /sbin/nologin --disabled-password --no-create-home --uid $USER_ID --ingroup $GROUP_NAME $USER_NAME
 
