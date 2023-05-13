@@ -8,13 +8,12 @@ FROM alpine:latest
 
 EXPOSE 8082
 
-RUN adduser -u 1000 -S netuser && addgroup -S netuser netgroup
+RUN addgroup -S netgroup && adduser -S netuser -G netgroup -u 1000
 
 WORKDIR /data
 VOLUME ["/data"]
 
-RUN chown -R netuser:netgroup /data
-RUN chmod 755 /data
+RUN chown -R netuser:netgroup /data && chmod 755 /data
 USER netuser
 
 COPY --from=builder /bin/netserver /bin/netserver
