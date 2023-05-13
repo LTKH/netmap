@@ -6,10 +6,10 @@ RUN go build -o /bin/netserver cmd/netserver/netserver.go
 
 FROM alpine:latest
 
-ADD https://github.com/sgerrand/alpine-pkg-glibc/releases/download/2.34-r0/glibc-2.34-r0.apk /tmp
-RUN apk update && \
-    apk add --no-cache bash curl && \ 
-    apk add --allow-untrusted /tmp/*.apk && rm -f /tmp/*.apk
+#ADD https://github.com/sgerrand/alpine-pkg-glibc/releases/download/2.34-r0/glibc-2.34-r0.apk /tmp
+#RUN apk update && \
+#    apk add --no-cache bash curl && \ 
+#    apk add --allow-untrusted /tmp/*.apk && rm -f /tmp/*.apk
 
 EXPOSE 8082
 
