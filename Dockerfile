@@ -6,12 +6,12 @@ RUN go build -o /bin/netserver cmd/netserver/netserver.go
 
 FROM alpine:3.18.0
 
-EXPOSE 8082
+EXPOSE 8084
 
 #RUN addgroup -S netgroup && adduser -S netserver -G netgroup -u 1000
 
 WORKDIR /data
-VOLUME ["/data"]
+#VOLUME ["/data"]
 
 #RUN chown -R netserver:netgroup /data && chmod 755 /data
 #USER netserver
