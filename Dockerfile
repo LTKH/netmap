@@ -12,8 +12,14 @@ RUN apk update && \
     apk add --allow-untrusted /tmp/*.apk && rm -f /tmp/*.apk
 
 EXPOSE 8082
+
+RUN useradd -ms /bin/bash -u 1000 netserver
+
 WORKDIR /data
-VOLUME ["/data"]
+
+RUN chown -R netserver:netserver /data
+RUN chmod 755 /data
+USER netserver
 
 COPY --from=builder /bin/netserver /bin/netserver
 COPY config/config.yml /etc/netserver.yml
