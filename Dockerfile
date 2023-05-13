@@ -25,14 +25,16 @@ EXPOSE 8084
 #
 #RUN mkdir /data && chown -R $USER_NAME:$GROUP_NAME /data && chmod 755 /data
 
+COPY --from=builder /bin/netserver /bin/netserver
+COPY config/config.yml /etc/netserver.yml
+
 RUN mkdir /var/lib/sqlite3
 VOLUME ["/var/lib/sqlite3"]
 
 #WORKDIR /etc/netserver
 #USER $USER_NAME
 
-COPY --from=builder /bin/netserver /bin/netserver
-COPY config/config.yml /etc/netserver.yml
+
 
 ENTRYPOINT ["/bin/netserver"]
 CMD ["-config.file=/etc/netserver.yml"]
