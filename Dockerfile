@@ -8,14 +8,20 @@ FROM alpine:3.18.0
 
 EXPOSE 8084
 
-#RUN addgroup -S netgroup && adduser -S netserver -G netgroup -u 1000
+ENV USER_ID=1000
+ENV GROUP_ID=1000
+ENV USER_NAME=netserver
+ENV GROUP_NAME=netserver
 
-RUN mkdir /data
+RUN addgroup -g $GROUP_ID $GROUP_NAME && \
+    adduser --shell /sbin/nologin --disabled-password --no-create-home --uid $USER_ID --ingroup $GROUP_NAME $USER_NAME
+
+RUN mkdir /data && chown -R $USER_NAME:$GROUP_NAME /data && chmod 755 /data
+
 WORKDIR /data
 VOLUME ["/data"]
 
-#RUN chown -R netserver:netgroup /data && chmod 755 /data
-#USER netserver
+USER $USER_NAME
 
 COPY --from=builder /bin/netserver /bin/netserver
 COPY config/config.yml /etc/netserver.yml
