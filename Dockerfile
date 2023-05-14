@@ -4,7 +4,7 @@ COPY . /src/
 WORKDIR /src/
 RUN go build -o /bin/netserver cmd/netserver/netserver.go
 
-FROM redhat/ubi8-minimal
+FROM redhat/ubi8
 
 EXPOSE 8084
 
