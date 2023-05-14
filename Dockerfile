@@ -28,7 +28,7 @@ EXPOSE 8084
 COPY --from=builder /bin/netserver /bin/netserver
 COPY config/config.yml /etc/netserver.yml
 
-RUN mkdir /var/lib/sqlite3 && chmod 755 /var/lib/sqlite3
+RUN mkdir /data && chmod 755 /data
 #VOLUME ["/var/lib/sqlite3"]
 
 #WORKDIR /etc/netserver

@@ -3,7 +3,9 @@ package sqlite3
 import (
     "fmt"
     //"log"
+    "os"
     "time"
+    "errors"
     "regexp"
     "strings"
     "encoding/json"
@@ -18,6 +20,12 @@ type Client struct {
 }
 
 func NewClient(conf *config.DB) (*Client, error) {
+    if _, err := os.Stat(conf.ConnString); errors.Is(err, os.ErrNotExist) {
+        _, err := os.Create(conf.ConnString)
+        if err != nil {
+            return nil, err
+        }
+    }
     conn, err := sql.Open("sqlite3", conf.ConnString)
     if err != nil {
         return nil, err
