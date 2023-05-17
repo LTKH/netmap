@@ -284,7 +284,7 @@ func (db *Client) LoadExceptions(args config.ExpArgs) ([]config.Exception, error
     }
 
     if args.AccountID != "" {
-        swhere = append(swhere, fmt.Sprintf("\"exception.accountID\":%s}", args.AccountID))
+        swhere = append(swhere, fmt.Sprintf("\"exception.accountID\":%s", args.AccountID))
     }
 
     resp, err := db.client.NewRequest("POST", "/exceptions/_find", []byte(fmt.Sprintf("{\"selector\":{%s}}", strings.Join(swhere, ","))))
