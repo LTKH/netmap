@@ -6,7 +6,6 @@ import (
     "github.com/ltkh/netmap/internal/db/cache"
     "github.com/ltkh/netmap/internal/db/sqlite3"
     "github.com/ltkh/netmap/internal/db/couchdb"
-    "github.com/ltkh/netmap/internal/db/couchbase"
 )
 
 type DbClient interface {
@@ -43,8 +42,6 @@ func NewClient(config *config.DB) (DbClient, error) {
             return cache.NewClient(config)
         case "couchdb":
             return couchdb.NewClient(config)
-        case "couchbase":
-            return couchbase.NewClient(config)
     }
     return nil, errors.New("invalid client")
 }

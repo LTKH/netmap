@@ -16,13 +16,13 @@ type RecArgs struct {
     SrcName        string
     Timestamp      int64
     Type           string
-    AccountID      uint32
+    AccountID      string
 }
 
 type ExpArgs struct {
     Id             string
     SrcName        string
-    AccountID      uint32
+    AccountID      string
 }
 
 type Exception struct {
@@ -100,18 +100,18 @@ type NetstatData struct {
     Data           []SockTable            `json:"data"`
 }
 
-func getHash(text string) string {
+func GetHash(text string) string {
     h := sha1.New()
     io.WriteString(h, text)
     return hex.EncodeToString(h.Sum(nil))
 }
 
 func GetIdRec(i *SockTable) string {
-    return getHash(fmt.Sprintf("%v:%v:%v:%v:%v:%v", i.LocalAddr.IP, i.RemoteAddr.IP, i.Relation.Mode, i.Relation.Port))
+    return GetHash(fmt.Sprintf("%v:%v:%v:%v:%v:%v", i.LocalAddr.IP, i.RemoteAddr.IP, i.Relation.Mode, i.Relation.Port))
 }
 
 func GetIdExp(i *Exception) string {
-    return getHash(fmt.Sprintf("%v:%v", i, time.Now().UTC().Unix()))
+    return GetHash(fmt.Sprintf("%v:%v", i, time.Now().UTC().Unix()))
 }
 
 func New(filename string) (*Config, error) {

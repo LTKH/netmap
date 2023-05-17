@@ -254,7 +254,7 @@ func (db *Client) LoadExceptions(args config.ExpArgs) ([]config.Exception, error
         swhere = append(swhere, "id = ?")
         awhere = append(awhere, args.Id)
     }
-    if args.AccountID != 0 {
+    if args.AccountID != "" {
         swhere = append(swhere, "accountId = ?")
         awhere = append(awhere, args.AccountID)
     }
