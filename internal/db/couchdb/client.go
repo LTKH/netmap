@@ -17,6 +17,7 @@ import (
 
 type Client struct {
     client *client.HttpClient
+    config *config.DB
 }
 
 type RecDocs struct {
@@ -54,7 +55,7 @@ func NewClient(conf *config.DB) (*Client, error) {
         Password: conf.Password,
     })
 
-    return &Client{ client: clt }, nil
+    return &Client{ client: clt, config: conf }, nil
 }
 
 func (db *Client) Close() error {
@@ -188,7 +189,7 @@ func (db *Client) LoadRecords(args config.RecArgs) ([]config.SockTable, error) {
         swhere = append(swhere, fmt.Sprintf("\"record.timestamp\":{\"$gte\":%v}", args.Timestamp))
     }
 
-    resp, err := db.client.NewRequest("POST", "/records/_find", []byte(fmt.Sprintf("{\"selector\":{%s}}", strings.Join(swhere, ","))))
+    resp, err := db.client.NewRequest("POST", "/records/_find", []byte(fmt.Sprintf("{\"limit\":%d,\"selector\":{%s}}", db.config.Limit, strings.Join(swhere, ","))))
     if err != nil {
         return result, err
     }
@@ -287,7 +288,7 @@ func (db *Client) LoadExceptions(args config.ExpArgs) ([]config.Exception, error
         swhere = append(swhere, fmt.Sprintf("\"exception.accountID\":%s", args.AccountID))
     }
 
-    resp, err := db.client.NewRequest("POST", "/exceptions/_find", []byte(fmt.Sprintf("{\"selector\":{%s}}", strings.Join(swhere, ","))))
+    resp, err := db.client.NewRequest("POST", "/exceptions/_find", []byte(fmt.Sprintf("{\"limit\":1000,\"selector\":{%s}}", strings.Join(swhere, ","))))
     if err != nil {
         return result, err
     }
