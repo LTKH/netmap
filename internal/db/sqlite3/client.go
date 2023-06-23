@@ -206,6 +206,10 @@ func (db *Client) SaveRecords(records []config.SockTable) error {
         if err != nil {
             continue
         }
+
+        if rec.Id == "" {
+            rec.Id = config.GetIdRec(&rec)
+        }
         
         _, err = db.client.Exec(
             sql, 
