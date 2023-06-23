@@ -110,7 +110,7 @@ func (db *Client) SaveNetstat(records []config.SockTable) error {
         }
 
         if rec.Id == "" {
-            continue
+            rec.Id = config.GetIdRec(&rec)
         }
         
         _, err = db.client.Exec(
