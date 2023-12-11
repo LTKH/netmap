@@ -253,6 +253,10 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
             return
         }
 
+        if len(records) == 0 {
+            records = make([]config.SockTable, 0)
+        }
+
         data := encodeResp(&Resp{Status:"success", Data:records})
         buf, ok, err := compressData(data, r.Header.Get("Accept-Encoding"))
         if err != nil {
