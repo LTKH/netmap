@@ -457,6 +457,7 @@ func main() {
                         "port":       fmt.Sprintf("%v", nr.Relation.Port),
                         "mode":       nr.Relation.Mode,
                         "service":    nr.Options.Service,
+                        "status":     nr.Options.Status,
                         "account_id": fmt.Sprintf("%v", nr.Options.AccountID),
                     }
                     timeout := time.Duration(nr.Options.Timeout) * time.Second
