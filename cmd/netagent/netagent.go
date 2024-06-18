@@ -27,7 +27,7 @@ import (
 )
 
 var (
-    httpClient = client.NewHttpClient()
+    httpClient = client.NewHttpClient(nil)
     cacheRecords = cache.NewCacheRecords(10000)
 )
 
