@@ -29,6 +29,7 @@ import (
 var (
     httpClient = client.NewHttpClient(nil)
     cacheRecords = cache.NewCacheRecords(10000)
+    Version = "unknown"
 )
 
 type Records struct {
@@ -324,8 +325,15 @@ func main() {
     logMaxBackups  := flag.Int("log.max-backups", 3, "log max backups")
     logMaxAge      := flag.Int("log.max-age", 10, "log max age")
     logCompress    := flag.Bool("log.compress", true, "log compress")
+    version        := flag.Bool("version", false, "show netagent version")
     debug          := flag.Bool("debug", false, "debug mode")
     flag.Parse()
+
+    // Show version
+    if *version {
+        Log.Printf("%v", main.Version)
+        return
+    }
 
     // Logging settings
     if *lgFile != "" || *plugin != "" {

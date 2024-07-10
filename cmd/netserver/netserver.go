@@ -15,6 +15,10 @@ import (
     "github.com/ltkh/netmap/internal/config"
 )
 
+var (
+    Version = "unknown"
+)
+
 func main() {
 
     // Command-line flag parsing
@@ -25,7 +29,14 @@ func main() {
     logMaxBackups  := flag.Int("log.max-backups", 3, "log max backups")
     logMaxAge      := flag.Int("log.max-age", 10, "log max age")
     logCompress    := flag.Bool("log.compress", true, "log compress")
+    version        := flag.Bool("version", false, "show netserver version")
     flag.Parse()
+
+    // Show version
+    if *version {
+        Log.Printf("%v", main.Version)
+        return
+    }
 
     // Logging settings
     if *lgFile != "" {
