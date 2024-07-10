@@ -331,7 +331,7 @@ func main() {
 
     // Show version
     if *version {
-        Log.Printf("%v", main.Version)
+        log.Printf("%v", Version)
         return
     }
 
