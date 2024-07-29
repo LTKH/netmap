@@ -1,27 +1,26 @@
-FROM golang:1.20.3 AS builder
+FROM golang:1.19.2 AS builder
 
 COPY . /src/
 WORKDIR /src/
 RUN go build -o /bin/netserver cmd/netserver/netserver.go
 
-FROM centos
+#FROM ubuntu:latest AS scratchuser
+#RUN useradd -u 10001 netserver
+
+FROM scratch
 
 EXPOSE 8084
 
-ENV USER_ID=1000
-ENV USER_NAME=netserver
-
-RUN mkdir /data && chmod 755 /data && \
-    useradd -M --uid $USER_ID --home /data $USER_NAME && \
-    chown -R $USER_NAME /data
-
+#COPY --from=scratchuser /etc/passwd /etc/passwd
+#RUN echo 'nobody:x:65534:65534:Nobody:/:' >> /etc/passwd
 COPY --from=builder /bin/netserver /bin/netserver
 COPY config/config.yml /etc/netserver.yml
 
 VOLUME ["/data"]
 
-USER $USER_NAME
+USER nobody
 #RUN /bin/netserver --help
+#RUN cat /etc/passwd
 
 ENTRYPOINT ["/bin/netserver"]
 CMD ["-config.file=/etc/netserver.yml"]
