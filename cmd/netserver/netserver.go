@@ -83,25 +83,6 @@ func main() {
         log.Fatalf("[error] %v", err)
     }
 
-    // Initial cluster nodes
-    peers := []string{}
-    if *initClucter != "" {
-        peers = strings.Split(*initClucter, ",")
-    }
-    if len(peers) == 0 {
-        peers = strings.Split(os.Getenv("NETSERVER_INITIAL_CLUSTER"), ",")
-    }
-    if len(peers) == 0 {
-        peers = append(peers, *prAddress)
-    }
-
-    go func() {
-        for {
-            apiV1.ApiPeers(peers)
-            time.Sleep(10 * time.Second)
-        }
-    }()
-
     // Enabled listen port
     http.HandleFunc("/-/healthy", func (w http.ResponseWriter, r *http.Request) {
         w.Header().Set("Content-Type", "text/plain")
@@ -127,6 +108,25 @@ func main() {
             }
         }
     }(cfg.Global)
+
+    // Initial cluster nodes
+    peers := []string{}
+    if *initClucter != "" {
+        peers = strings.Split(*initClucter, ",")
+    }
+    if len(peers) == 0 {
+        peers = strings.Split(os.Getenv("NETSERVER_INITIAL_CLUSTER"), ",")
+    }
+    if len(peers) == 0 {
+        peers = append(peers, *prAddress)
+    }
+
+    go func() {
+        for {
+            apiV1.ApiPeers(peers)
+            time.Sleep(10 * time.Second)
+        }
+    }()
 
     // Program completion signal processing
     c := make(chan os.Signal, 2)

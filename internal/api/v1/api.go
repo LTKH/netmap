@@ -63,12 +63,17 @@ type Records struct {
 
 type Exceptions struct {
     sync.RWMutex
-    items      map[string]config.Exception
+    items        map[string]config.Exception
 }
 
 type Peers struct {
     sync.RWMutex
-    items      map[string]*rpc.Client
+    items        map[string]*rpc.Client
+}
+
+type Errors struct {
+    sync.RWMutex
+    items        map[string]error
 }
 
 func readUserIP(r *http.Request) string {
@@ -132,7 +137,12 @@ func (api *Api) ApiPeers(peers []string) {
             delete(api.Peers.items, id)
             log.Printf("[error] %v", err)
         } else {
-            if _, ok := api.Peers.items[id]; !ok {
+            if client, ok := api.Peers.items[id]; ok {
+                tst := client.Call("RPC.Healthy", nil, nil)
+                if tst != nil {
+                    api.Peers.items[id] = rpc.NewClient(conn)
+                }
+            } else {
                 log.Printf("[info] successful connection: %v", id)
                 api.Peers.items[id] = rpc.NewClient(conn)
             }
@@ -450,6 +460,8 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
     }
 
     if r.Method == "DELETE" {
+
+        er := Errors{items: make(map[string]error)}
         var reader io.ReadCloser
         var err error
 
@@ -488,26 +500,37 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
 
         api.Peers.RLock()
         defer api.Peers.RUnlock()
-        for _, client := range api.Peers.items {
+        for id, client := range api.Peers.items {
 
             wg.Add(1)
 
-            go func(client *rpc.Client) {
+            go func(id string, client *rpc.Client, er *Errors) {
                 defer wg.Done()
     
                 err := client.Call("RPC.DelRecords", keys, nil)
                 if err != nil {
-                    log.Printf("[error] %v - %s", err, r.URL.Path)
-                    w.WriteHeader(500)
-                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
-                    return
+                    er.Lock()
+                    defer er.Unlock()
+                    
+                    er.items[id] = err
                 }
     
-            }(client)
+            }(id, client, &er)
             
         }
 
         wg.Wait()
+
+        er.RLock()
+        defer er.RUnlock()
+
+        for id, err := range er.items {
+            log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
+        }
+        if len(er.items) > 0 {
+            w.WriteHeader(500)
+            return
+        }
 
         w.WriteHeader(200)
         w.Write(encodeResp(&Resp{Status:"success", Data:make([]int, 0)}))
@@ -542,17 +565,17 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
 
         api.Peers.RLock()
         defer api.Peers.RUnlock()
-        for _, client := range api.Peers.items {
+        for id, client := range api.Peers.items {
 
             wg.Add(1)
 
-            go func(client *rpc.Client) {
+            go func(id string, client *rpc.Client) {
                 defer wg.Done()
     
                 var items []config.Exception
                 err := client.Call("RPC.GetExceptions", args, &items)
                 if err != nil {
-                    log.Printf("[error] %v - %s", err, r.URL.Path)
+                    log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
                     return
                 }
     
@@ -563,7 +586,7 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
                     ex.items[item.Id] = item
                 }
     
-            }(client)
+            }(id, client)
             
         }
 
@@ -643,17 +666,17 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
 
         api.Peers.RLock()
         defer api.Peers.RUnlock()
-        for _, client := range api.Peers.items {
+        for id, client := range api.Peers.items {
 
-            go func(client *rpc.Client) {
+            go func(id string, client *rpc.Client) {
     
                 err := client.Call("RPC.SetExceptions", exceptions, nil)
                 if err != nil {
-                    log.Printf("[error] %v - %s", err, r.URL.Path)
+                    log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
                     return
                 }
     
-            }(client)
+            }(id, client)
             
         }
         
@@ -662,6 +685,8 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
     }
 
     if r.Method == "DELETE" {
+
+        er := Errors{items: make(map[string]error)}
         var reader io.ReadCloser
         var err error
 
@@ -700,26 +725,37 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
 
         api.Peers.RLock()
         defer api.Peers.RUnlock()
-        for _, client := range api.Peers.items {
+        for id, client := range api.Peers.items {
 
             wg.Add(1)
 
-            go func(client *rpc.Client) {
+            go func(id string, client *rpc.Client, er *Errors) {
                 defer wg.Done()
     
                 err := client.Call("RPC.DelExceptions", keys, nil)
                 if err != nil {
-                    log.Printf("[error] %v - %s", err, r.URL.Path)
-                    w.WriteHeader(500)
-                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
-                    return
+                    er.Lock()
+                    defer er.Unlock()
+                    
+                    er.items[id] = err
                 }
     
-            }(client)
+            }(id, client, &er)
             
         }
         
         wg.Wait()
+
+        er.RLock()
+        defer er.RUnlock()
+
+        for id, err := range er.items {
+            log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
+        }
+        if len(er.items) > 0 {
+            w.WriteHeader(500)
+            return
+        }
 
         w.WriteHeader(200)
         w.Write(encodeResp(&Resp{Status:"success", Data:make([]int, 0)}))

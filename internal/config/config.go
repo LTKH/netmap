@@ -4,7 +4,7 @@ import (
     "io"
     "fmt"
     "net"
-    "time"
+    //"time"
     "io/ioutil"
     "crypto/sha1"
     "encoding/hex"
@@ -111,7 +111,7 @@ func GetIdRec(i *SockTable) string {
 }
 
 func GetIdExp(i *Exception) string {
-    return GetHash(fmt.Sprintf("%v:%v", i, time.Now().UTC().Unix()))
+    return GetHash(fmt.Sprintf("%v:%v:%v", i.AccountID, i.HostMask, i.IgnoreMask))
 }
 
 func New(filename string) (*Config, error) {
