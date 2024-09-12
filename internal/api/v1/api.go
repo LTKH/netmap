@@ -526,7 +526,7 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
 
     if r.Method == "GET" {
 
-        var ex Exceptions
+        ex := Exceptions{items: make(map[string]config.Exception)}
         var args config.ExpArgs
 
         for k, v := range r.URL.Query() {
@@ -574,6 +574,10 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
 
         for _, item := range ex.items{
             exceptions = append(exceptions, item)
+        }
+
+        if len(exceptions) == 0 {
+            exceptions = make([]config.Exception, 0)
         }
 
         data := encodeResp(&Resp{Status:"success", Data:exceptions})
