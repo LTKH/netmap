@@ -26,8 +26,8 @@ var (
 func main() {
 
     // Command-line flag parsing
-    lsAddress      := flag.String("listen-client-address", "127.0.0.1:8084", "listen client address")
-    prAddress      := flag.String("listen-peer-address", "127.0.0.1:8085", "listen peer address")
+    lsAddress      := flag.String("listen.client-address", "127.0.0.1:8084", "listen client address")
+    prAddress      := flag.String("listen.peer-address", "127.0.0.1:8085", "listen peer address")
     initClucter    := flag.String("initial-cluster", "", "initial cluster nodes")
     cfFile         := flag.String("config.file", "config/config.yml", "config file")
     lgFile         := flag.String("log.file", "", "log file")
