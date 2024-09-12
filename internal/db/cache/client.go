@@ -19,7 +19,7 @@ type Client struct {
     limit          int
 }
 
-func NewClient(conf *config.DB) (*Client, error) {
+func New(conf *config.DB) (*Client, error) {
 
     // Set CacheLimit
     if conf.Limit == 0 {
@@ -39,6 +39,10 @@ func (db *Client) Close() error {
 }
 
 func (db *Client) CreateTables() error {
+    return nil
+}
+
+func (db *Client) LoadTables() error {
     return nil
 }
 

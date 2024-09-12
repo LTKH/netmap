@@ -10,6 +10,7 @@ import (
 
 type DbClient interface {
     CreateTables() error
+    LoadTables() error
     Close() error
 
     SaveStatus(records []config.SockTable) error
@@ -37,11 +38,11 @@ type DbClient interface {
 func NewClient(config *config.DB) (DbClient, error) {
     switch config.Client {
         case "sqlite3":
-            return sqlite3.NewClient(config)
+            return sqlite3.New(config)
         case "cache":
-            return cache.NewClient(config)
+            return cache.New(config)
         case "redis":
-            return redis.NewClient(config)
+            return redis.New(config)
     }
     return nil, errors.New("invalid client")
 }

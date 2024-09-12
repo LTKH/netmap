@@ -33,7 +33,7 @@ type Exceptions struct {
     Exceptions  config.Exception
 }
 
-func NewClient(conf *config.DB) (*Client, error) {
+func New(conf *config.DB) (*Client, error) {
 	conn, err := redis.Dial("tcp", conf.ConnString)
     if err != nil {
         return &Client{}, err
@@ -56,6 +56,10 @@ func (db *Client) Close() error {
 }
 
 func (db *Client) CreateTables() error {
+    return nil
+}
+
+func (db *Client) LoadTables() error {
     return nil
 }
 

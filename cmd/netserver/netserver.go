@@ -1,11 +1,14 @@
 package main
 
 import (
+    "net"
+    "net/rpc"
     "net/http"
     _ "net/http/pprof"
     "time"
     "log"
     "fmt"
+    "strings"
     "os"
     "os/signal"
     "syscall"
@@ -23,7 +26,9 @@ var (
 func main() {
 
     // Command-line flag parsing
-    lsAddress      := flag.String("web.listen-address", ":8084", "listen address")
+    lsAddress      := flag.String("listen-client-address", "127.0.0.1:8084", "listen client address")
+    prAddress      := flag.String("listen-peer-address", "127.0.0.1:8085", "listen peer address")
+    initClucter    := flag.String("initial-cluster", "", "initial cluster nodes")
     cfFile         := flag.String("config.file", "config/config.yml", "config file")
     lgFile         := flag.String("log.file", "", "log file")
     logMaxSize     := flag.Int("log.max-size", 1, "log max size") 
@@ -56,11 +61,46 @@ func main() {
         log.Fatalf("[error] %v", err)
     }
 
-    // Creating api
-    apiV1, err := v1.New(cfg)
+    // Creating RPC
+    rpcV1, err := v1.NewRPC(cfg)
     if err != nil {
         log.Fatalf("[error] %v", err)
     }
+
+    // TCP Listen
+    go func(){
+        inbound, err := net.Listen("tcp", *prAddress)
+        if err != nil {
+            log.Fatalf("[error] %v", err)
+        }
+        rpc.Register(rpcV1)
+        rpc.Accept(inbound)
+    }()
+
+    // Creating API
+    apiV1, err := v1.NewAPI(cfg)
+    if err != nil {
+        log.Fatalf("[error] %v", err)
+    }
+
+    // Initial cluster nodes
+    peers := []string{}
+    if *initClucter != "" {
+        peers = strings.Split(*initClucter, ",")
+    }
+    if len(peers) == 0 {
+        peers = strings.Split(os.Getenv("NETSERVER_INITIAL_CLUSTER"), ",")
+    }
+    if len(peers) == 0 {
+        peers = append(peers, *prAddress)
+    }
+
+    go func() {
+        for {
+            apiV1.ApiPeers(peers)
+            time.Sleep(10 * time.Second)
+        }
+    }()
 
     // Enabled listen port
     http.HandleFunc("/-/healthy", func (w http.ResponseWriter, r *http.Request) {

@@ -1,4 +1,4 @@
-FROM golang:1.20.3 AS builder
+FROM golang:1.21
 
 COPY . /src/
 WORKDIR /src/
@@ -8,7 +8,7 @@ FROM redhat/ubi9-minimal
 
 EXPOSE 8084
 
-COPY --from=builder /bin/netserver /bin/netserver
+COPY --from=0 /bin/netserver /bin/netserver
 COPY config/config.yml /etc/netserver.yml
 
 VOLUME ["/data"]
