@@ -15,6 +15,7 @@ type DbClient interface {
 
     SaveStatus(records []config.SockTable) error
     SaveNetstat(records []config.SockTable) error
+    SaveTracert(records []config.SockTable) error
 
     LoadRecords(args config.RecArgs) ([]config.SockTable, error)
     SaveRecords(records []config.SockTable) error

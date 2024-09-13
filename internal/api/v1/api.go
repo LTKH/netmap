@@ -278,6 +278,70 @@ func (api *Api) ApiNetstat(w http.ResponseWriter, r *http.Request) {
     w.Write(encodeResp(&Resp{Status:"error", Error:"method not allowed", Data:make([]int, 0)}))
 }
 
+func (api *Api) ApiTracert(w http.ResponseWriter, r *http.Request) {
+    w.Header().Set("Content-Type", "application/json")
+
+    if r.Method == "POST" {
+        var reader io.ReadCloser
+        var err error
+
+        // Check that the server actual sent compressed data
+        switch r.Header.Get("Content-Encoding") {
+            case "gzip":
+                reader, err = gzip.NewReader(r.Body)
+                if err != nil {
+                    log.Printf("[error] %v - %s", err, r.URL.Path)
+                    w.WriteHeader(400)
+                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+                    return
+                }
+                defer reader.Close()
+            default:
+                reader = r.Body
+        }
+        defer r.Body.Close()
+
+        body, err := ioutil.ReadAll(reader)
+        if err != nil {
+            log.Printf("[error] %v - %s", err, r.URL.Path)
+            w.WriteHeader(400)
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            return
+        }
+
+        var netstat config.NetstatData
+
+        if err := json.Unmarshal(body, &netstat); err != nil {
+            log.Printf("[error] %v - %s", err, r.URL.Path)
+            w.WriteHeader(400)
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            return
+        }
+
+        api.Peers.RLock()
+        defer api.Peers.RUnlock()
+        for id, client := range api.Peers.items {
+
+            go func(id string, client *rpc.Client) {
+    
+                err := client.Call("RPC.SetTracert", netstat.Data, nil)
+                if err != nil {
+                    log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
+                    return
+                }
+    
+            }(id, client)
+            
+        }
+        
+        w.WriteHeader(204)
+        return
+    }
+
+    w.WriteHeader(405)
+    w.Write(encodeResp(&Resp{Status:"error", Error:"method not allowed", Data:make([]int, 0)}))
+}
+
 func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
 
@@ -438,7 +502,7 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
                 log.Printf("[error] parameter missing Relation.Mode, sender - %s", rhost)
                 continue
             }
-            nr.Id = config.GetIdRec(&nr)
+            //nr.Id = config.GetIdRec(&nr)
             records = append(records, nr)
         }
 
@@ -513,9 +577,8 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
                 err := client.Call("RPC.DelRecords", keys, nil)
                 if err != nil {
                     er.Lock()
-                    defer er.Unlock()
-                    
                     er.items[id] = err
+                    er.Unlock()
                 }
     
             }(id, client, &er)
@@ -529,9 +592,8 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
 
         for id, err := range er.items {
             log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
-        }
-        if len(er.items) > 0 {
             w.WriteHeader(500)
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
             return
         }
 
@@ -738,9 +800,8 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
                 err := client.Call("RPC.DelExceptions", keys, nil)
                 if err != nil {
                     er.Lock()
-                    defer er.Unlock()
-                    
                     er.items[id] = err
+                    er.Unlock()
                 }
     
             }(id, client, &er)
@@ -754,9 +815,8 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
 
         for id, err := range er.items {
             log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
-        }
-        if len(er.items) > 0 {
             w.WriteHeader(500)
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
             return
         }
 

@@ -51,6 +51,11 @@ func (rpc *RPC) SetNetstat(items []config.SockTable, reply *string) error {
     return err
 }
 
+func (rpc *RPC) SetTracert(items []config.SockTable, reply *string) error {
+    err := db.DbClient.SaveTracert(*rpc.DB, items)
+    return err
+}
+
 func (rpc *RPC) GetRecords(args config.RecArgs, items *[]config.SockTable) error {
     var err error
     *items, err = db.DbClient.LoadRecords(*rpc.DB, args)

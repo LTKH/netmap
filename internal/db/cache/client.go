@@ -90,6 +90,10 @@ func (db *Client) SaveNetstat(records []config.SockTable) error {
     return nil
 }
 
+func (db *Client) SaveTracert(records []config.SockTable) error {
+    return nil
+}
+
 func (db *Client) LoadRecords(args config.RecArgs) ([]config.SockTable, error) {
     db.RLock()
     defer db.RUnlock()

@@ -189,7 +189,7 @@ func (db *Client) SaveStatus(records []config.SockTable) error {
         item.Relation = rec.Relation
         item.Timestamp = time.Now().UTC().Unix()
 
-        db.records.items[rec.Id]= item
+        db.records.items[rec.Id] = item
 
     }
 
@@ -197,16 +197,19 @@ func (db *Client) SaveStatus(records []config.SockTable) error {
 }
 
 func (db *Client) SaveNetstat(records []config.SockTable) error {
-    db.records.Lock()
-    defer db.records.Unlock()
+    db.records.RLock()
+    var items []config.SockTable
 
     for _, rec := range records {
+
+        rec.Id = config.GetIdRec(&rec)
 
         _, found := db.records.items[rec.Id]
         if found {
             continue
         }
 
+        /*
         if _, ok := db.records.index[rec.LocalAddr.Name]; !ok {
             db.records.index[rec.LocalAddr.Name] = make(map[string]bool)
         }
@@ -214,6 +217,37 @@ func (db *Client) SaveNetstat(records []config.SockTable) error {
         rec.Timestamp = time.Now().UTC().Unix()
         db.records.index[rec.LocalAddr.Name][rec.Id] = true
         db.records.items[rec.Id] = rec
+        */
+
+        items = append(items, rec)
+    }
+
+    db.records.RUnlock()
+
+    return db.SaveRecords(items)
+}
+
+func (db *Client) SaveTracert(records []config.SockTable) error {
+    db.records.Lock()
+    defer db.records.Unlock()
+
+    for _, rec := range records {
+
+        rec.Id = config.GetIdRec(&rec)
+
+        item, found := db.records.items[rec.Id]
+        if !found {
+            continue
+        }
+        
+        if rec.Relation.Command != "" {
+            item.Relation.Command = rec.Relation.Command
+        }
+
+        item.Relation.Trace = 2
+        item.Timestamp = time.Now().UTC().Unix()
+
+        db.records.items[rec.Id] = item
     }
 
     return nil
@@ -249,15 +283,9 @@ func (db *Client) SaveRecords(records []config.SockTable) error {
 
     sql := "replace into records (id,timestamp,localName,localIP,remoteName,remoteIP,relation,options) values (?,?,?,?,?,?,?,?)"
 
-    //fmt.Printf("%v\n",records)
-
     for _, rec := range records {
 
-        //fmt.Printf("%v\n",rec)
-
-        if rec.Id == "" {
-            rec.Id = config.GetIdRec(&rec)
-        }
+        rec.Id = config.GetIdRec(&rec)
 
         _, found := db.records.items[rec.Id]
         if !found && len(db.records.items) >= db.config.Limit {
