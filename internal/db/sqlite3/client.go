@@ -181,6 +181,10 @@ func (db *Client) SaveStatus(records []config.SockTable) error {
 
     for _, rec := range records {
 
+        if rec.Id == "" {
+            rec.Id = config.GetIdRec(&rec)
+        }
+
         item, found := db.records.items[rec.Id]
         if !found {
             continue
@@ -188,7 +192,6 @@ func (db *Client) SaveStatus(records []config.SockTable) error {
 
         item.Relation = rec.Relation
         item.Timestamp = time.Now().UTC().Unix()
-
         db.records.items[rec.Id] = item
 
     }
@@ -202,22 +205,14 @@ func (db *Client) SaveNetstat(records []config.SockTable) error {
 
     for _, rec := range records {
 
-        rec.Id = config.GetIdRec(&rec)
+        if rec.Id == "" {
+            rec.Id = config.GetIdRec(&rec)
+        }
 
         _, found := db.records.items[rec.Id]
         if found {
             continue
         }
-
-        /*
-        if _, ok := db.records.index[rec.LocalAddr.Name]; !ok {
-            db.records.index[rec.LocalAddr.Name] = make(map[string]bool)
-        }
-
-        rec.Timestamp = time.Now().UTC().Unix()
-        db.records.index[rec.LocalAddr.Name][rec.Id] = true
-        db.records.items[rec.Id] = rec
-        */
 
         items = append(items, rec)
     }
@@ -229,28 +224,35 @@ func (db *Client) SaveNetstat(records []config.SockTable) error {
 
 func (db *Client) SaveTracert(records []config.SockTable) error {
     db.records.Lock()
-    defer db.records.Unlock()
+    var items []config.SockTable
 
     for _, rec := range records {
 
-        rec.Id = config.GetIdRec(&rec)
+        if rec.Id == "" {
+            rec.Id = config.GetIdRec(&rec)
+        }
 
         item, found := db.records.items[rec.Id]
         if !found {
             continue
         }
-        
-        if rec.Relation.Command != "" {
-            item.Relation.Command = rec.Relation.Command
-        }
 
         item.Relation.Trace = 2
-        item.Timestamp = time.Now().UTC().Unix()
+        
+        if rec.Options.Command != "" {
+            item.Options.Command = rec.Options.Command
+            items = append(items, item)
+            continue
+        }
 
+        item.Timestamp = time.Now().UTC().Unix()
         db.records.items[rec.Id] = item
+
     }
 
-    return nil
+    db.records.Unlock()
+
+    return db.SaveRecords(items)
 }
 
 func (db *Client) LoadRecords(args config.RecArgs) ([]config.SockTable, error) {

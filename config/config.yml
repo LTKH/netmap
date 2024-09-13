@@ -13,3 +13,4 @@ db:
 
 notifier:
   urls:           []
+  path:           ""

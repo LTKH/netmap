@@ -90,6 +90,7 @@ type DB struct {
 
 type Notifier struct {
     URLs           []string               `yaml:"urls"`
+    Path           string                 `yaml:"path"`
 }
 
 type ExceptionData struct {

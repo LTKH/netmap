@@ -865,7 +865,10 @@ func (api *Api) ApiWebhook(w http.ResponseWriter, r *http.Request) {
                 config := client.HttpConfig{
                     URLs: []string{url},
                 }
-                go httpClient.WriteRecords(config, "/api/v1/alerts", body)
+                if api.Conf.Notifier.Path == "" {
+                    api.Conf.Notifier.Path = "/api/v1/alerts"
+                }
+                go httpClient.WriteRecords(config, api.Conf.Notifier.Path, body)
             }
         }
         
