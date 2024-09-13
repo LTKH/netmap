@@ -81,8 +81,20 @@ func main() {
         rpc.Accept(inbound)
     }()
 
+    // Initial cluster nodes
+    peers := []string{}
+    if *initClucter != "" {
+        peers = strings.Split(*initClucter, ",")
+    }
+    if len(peers) == 0 && os.Getenv("NETSERVER_INITIAL_CLUSTER") != "" {
+        peers = strings.Split(os.Getenv("NETSERVER_INITIAL_CLUSTER"), ",")
+    }
+    if len(peers) == 0 && *prAddress != "" {
+        peers = append(peers, *prAddress)
+    }
+
     // Creating API
-    apiV1, err := v1.NewAPI(cfg)
+    apiV1, err := v1.NewAPI(cfg, peers)
     if err != nil {
         log.Fatalf("[error] %v", err)
     }
@@ -114,21 +126,9 @@ func main() {
         }
     }(cfg.Global)
 
-    // Initial cluster nodes
-    peers := []string{}
-    if *initClucter != "" {
-        peers = strings.Split(*initClucter, ",")
-    }
-    if len(peers) == 0 && os.Getenv("NETSERVER_INITIAL_CLUSTER") != "" {
-        peers = strings.Split(os.Getenv("NETSERVER_INITIAL_CLUSTER"), ",")
-    }
-    if len(peers) == 0 && *prAddress != "" {
-        peers = append(peers, *prAddress)
-    }
-
     go func() {
         for {
-            apiV1.ApiPeers(peers)
+            apiV1.ApiPeers()
             time.Sleep(10 * time.Second)
         }
     }()

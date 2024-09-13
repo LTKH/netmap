@@ -37,10 +37,6 @@ func NewRPC(conf *config.Config) (*RPC, error) {
     return &RPC{DB: &client}, nil
 }
 
-func (rpc *RPC) Healthy(args string, reply *string) error {
-    return nil
-}
-
 func (rpc *RPC) SetStatus(items []config.SockTable, reply *string) error {
     err := db.DbClient.SaveStatus(*rpc.DB, items)
     return err

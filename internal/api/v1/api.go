@@ -42,6 +42,8 @@ var (
         },
         []string{"src_name","dst_name","mode","port"},
     )
+
+    connections = make(map[string]chan int)
 )
 
 type Api struct {
@@ -118,35 +120,43 @@ func MonRegister(){
     prometheus.MustRegister(responseTime)
 }
 
-func NewAPI(conf *config.Config) (*Api, error) {
+func NewAPI(conf *config.Config, peers []string) (*Api, error) {
     api := &Api{
         Conf: conf,
         Peers: &Peers{items: make(map[string]*rpc.Client)},
     }
 
+    for _, id := range peers {
+        connections[id] = make(chan int, 1)
+    }
+
     return api, nil
 }
 
-func (api *Api) ApiPeers(peers []string) {
-    api.Peers.Lock()
-    defer api.Peers.Unlock()
+func (api *Api) ApiPeers() {
+    for id, _ := range connections {
 
-    for _, id := range peers {
         conn, err := net.DialTimeout("tcp", id, 2 * time.Second)
-        if err != nil {
-            //delete(api.Peers.items, id)
-            log.Printf("[error] %v", err)
-        } else {
-            if client, ok := api.Peers.items[id]; ok {
-                tst := client.Call("RPC.Healthy", nil, nil)
-                if tst != nil {
-                    api.Peers.items[id] = rpc.NewClient(conn)
-                }
-            } else {
-                log.Printf("[info] successful connection: %v", id)
+        if err == nil {
+            if _, ok := api.Peers.items[id]; !ok {
+                api.Peers.Lock()
                 api.Peers.items[id] = rpc.NewClient(conn)
+                api.Peers.Unlock()
+                log.Printf("[info] successful connection: %v", id)
+                continue
             }
+            if len(connections[id]) > 0 {
+                <- connections[id]
+                api.Peers.Lock()
+                api.Peers.items[id] = rpc.NewClient(conn)
+                api.Peers.Unlock()
+                log.Printf("[info] connection restored: %v", id)
+                continue
+            }
+        } else {
+            log.Printf("[error] %v", err)
         }
+        
     }
 }
 
@@ -199,6 +209,9 @@ func (api *Api) ApiStatus(w http.ResponseWriter, r *http.Request) {
                 err := client.Call("RPC.SetStatus", netstat.Data, nil)
                 if err != nil {
                     log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
+                    if len(connections[id]) < 1 {
+                        connections[id] <- 1
+                    }
                     return
                 }
     
@@ -263,6 +276,9 @@ func (api *Api) ApiNetstat(w http.ResponseWriter, r *http.Request) {
                 err := client.Call("RPC.SetNetstat", netstat.Data, nil)
                 if err != nil {
                     log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
+                    if len(connections[id]) < 1 {
+                        connections[id] <- 1
+                    }
                     return
                 }
     
@@ -327,6 +343,9 @@ func (api *Api) ApiTracert(w http.ResponseWriter, r *http.Request) {
                 err := client.Call("RPC.SetTracert", netstat.Data, nil)
                 if err != nil {
                     log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
+                    if len(connections[id]) < 1 {
+                        connections[id] <- 1
+                    }
                     return
                 }
     
@@ -385,6 +404,9 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
                 err := client.Call("RPC.GetRecords", args, &items)
                 if err != nil {
                     log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
+                    if len(connections[id]) < 1 {
+                        connections[id] <- 1
+                    }
                     return
                 }
     
@@ -515,6 +537,9 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
                 err := client.Call("RPC.SetRecords", records, nil)
                 if err != nil {
                     log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
+                    if len(connections[id]) < 1 {
+                        connections[id] <- 1
+                    }
                     return
                 }
 
@@ -579,6 +604,11 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
                     er.Lock()
                     er.items[id] = err
                     er.Unlock()
+
+                    log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
+                    if len(connections[id]) < 1 {
+                        connections[id] <- 1
+                    }
                 }
     
             }(id, client, &er)
@@ -590,8 +620,7 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
         er.RLock()
         defer er.RUnlock()
 
-        for id, err := range er.items {
-            log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
+        for _, err := range er.items {
             w.WriteHeader(500)
             w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
             return
@@ -641,6 +670,9 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
                 err := client.Call("RPC.GetExceptions", args, &items)
                 if err != nil {
                     log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
+                    if len(connections[id]) < 1 {
+                        connections[id] <- 1
+                    }
                     return
                 }
     
@@ -738,6 +770,9 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
                 err := client.Call("RPC.SetExceptions", exceptions, nil)
                 if err != nil {
                     log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
+                    if len(connections[id]) < 1 {
+                        connections[id] <- 1
+                    }
                     return
                 }
     
@@ -802,6 +837,11 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
                     er.Lock()
                     er.items[id] = err
                     er.Unlock()
+
+                    log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
+                    if len(connections[id]) < 1 {
+                        connections[id] <- 1
+                    }
                 }
     
             }(id, client, &er)
@@ -813,8 +853,7 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
         er.RLock()
         defer er.RUnlock()
 
-        for id, err := range er.items {
-            log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
+        for _, err := range er.items {
             w.WriteHeader(500)
             w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
             return
