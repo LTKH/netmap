@@ -30,6 +30,7 @@ func main() {
     prAddress      := flag.String("listen.peer-address", "127.0.0.1:8085", "listen peer address")
     initClucter    := flag.String("initial-cluster", "", "initial cluster nodes")
     cfFile         := flag.String("config.file", "config/config.yml", "config file")
+    connString     := flag.String("db.conn-string", "", "db connection string")
     lgFile         := flag.String("log.file", "", "log file")
     logMaxSize     := flag.Int("log.max-size", 1, "log max size") 
     logMaxBackups  := flag.Int("log.max-backups", 3, "log max backups")
@@ -59,6 +60,9 @@ func main() {
     cfg, err := config.New(*cfFile)
     if err != nil {
         log.Fatalf("[error] %v", err)
+    }
+    if *connString != "" {
+        cfg.DB.ConnString = *connString
     }
 
     // Creating RPC
@@ -114,10 +118,10 @@ func main() {
     if *initClucter != "" {
         peers = strings.Split(*initClucter, ",")
     }
-    if len(peers) == 0 {
+    if len(peers) == 0 && os.Getenv("NETSERVER_INITIAL_CLUSTER") != "" {
         peers = strings.Split(os.Getenv("NETSERVER_INITIAL_CLUSTER"), ",")
     }
-    if len(peers) == 0 {
+    if len(peers) == 0 && *prAddress != "" {
         peers = append(peers, *prAddress)
     }
 

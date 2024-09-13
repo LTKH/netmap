@@ -134,7 +134,7 @@ func (api *Api) ApiPeers(peers []string) {
     for _, id := range peers {
         conn, err := net.DialTimeout("tcp", id, 2 * time.Second)
         if err != nil {
-            delete(api.Peers.items, id)
+            //delete(api.Peers.items, id)
             log.Printf("[error] %v", err)
         } else {
             if client, ok := api.Peers.items[id]; ok {
@@ -192,17 +192,17 @@ func (api *Api) ApiStatus(w http.ResponseWriter, r *http.Request) {
 
         api.Peers.RLock()
         defer api.Peers.RUnlock()
-        for _, client := range api.Peers.items {
+        for id, client := range api.Peers.items {
 
-            go func(cli *rpc.Client) {
+            go func(id string, cli *rpc.Client) {
     
                 err := client.Call("RPC.SetStatus", netstat.Data, nil)
                 if err != nil {
-                    log.Printf("[error] %v - %s", err, r.URL.Path)
+                    log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
                     return
                 }
     
-            }(client)
+            }(id, client)
             
         }
         
@@ -256,17 +256,17 @@ func (api *Api) ApiNetstat(w http.ResponseWriter, r *http.Request) {
 
         api.Peers.RLock()
         defer api.Peers.RUnlock()
-        for _, client := range api.Peers.items {
+        for id, client := range api.Peers.items {
 
-            go func(client *rpc.Client) {
+            go func(id string, client *rpc.Client) {
     
                 err := client.Call("RPC.SetNetstat", netstat.Data, nil)
                 if err != nil {
-                    log.Printf("[error] %v - %s", err, r.URL.Path)
+                    log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
                     return
                 }
     
-            }(client)
+            }(id, client)
             
         }
         
@@ -310,17 +310,17 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
 
         api.Peers.RLock()
         defer api.Peers.RUnlock()
-        for _, client := range api.Peers.items {
+        for id, client := range api.Peers.items {
 
             wg.Add(1)
 
-            go func(client *rpc.Client, rc *Records, wg *sync.WaitGroup) {
+            go func(id string, client *rpc.Client, rc *Records, wg *sync.WaitGroup) {
                 defer wg.Done()
     
                 var items []config.SockTable
                 err := client.Call("RPC.GetRecords", args, &items)
                 if err != nil {
-                    log.Printf("[error] %v - %s", err, r.URL.Path)
+                    log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
                     return
                 }
     
@@ -328,6 +328,9 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
                 defer rc.Unlock()
     
                 for _, item := range items{
+                    if args.Timestamp > item.Timestamp {
+                        continue
+                    }
                     if it, ok := rc.items[item.Id]; ok {
                         if it.Timestamp >= item.Timestamp {
                             continue
@@ -336,7 +339,7 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
                     rc.items[item.Id] = item
                 }
     
-            }(client, &rc, &wg)
+            }(id, client, &rc, &wg)
             
         }
 
@@ -441,17 +444,17 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
 
         api.Peers.RLock()
         defer api.Peers.RUnlock()
-        for _, client := range api.Peers.items {
+        for id, client := range api.Peers.items {
 
-            go func(client *rpc.Client) {
+            go func(id string, client *rpc.Client) {
 
                 err := client.Call("RPC.SetRecords", records, nil)
                 if err != nil {
-                    log.Printf("[error] %v - %s", err, r.URL.Path)
+                    log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
                     return
                 }
 
-            }(client)
+            }(id, client)
             
         }
         
