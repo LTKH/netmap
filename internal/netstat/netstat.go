@@ -19,6 +19,9 @@ type NetstatData struct {
 }
 
 func Hostname() (string, error) {
+    if os.Getenv("NETAGENT_HOSTNAME") != "" {
+        return os.Getenv("NETAGENT_HOSTNAME"), nil
+    }
     hostname, err := os.Hostname()
     if err != nil {
         return "", err
