@@ -190,8 +190,11 @@ func (db *Client) SaveStatus(records []config.SockTable) error {
             continue
         }
 
-        item.Relation = rec.Relation
         item.Timestamp = time.Now().UTC().Unix()
+        if item.Relation != rec.Relation {
+            item.Relation = rec.Relation
+            go db.SaveRecord(rec)
+        }
         db.records.items[rec.Id] = item
 
     }
@@ -200,26 +203,35 @@ func (db *Client) SaveStatus(records []config.SockTable) error {
 }
 
 func (db *Client) SaveNetstat(records []config.SockTable) error {
-    db.records.RLock()
-    var items []config.SockTable
+    db.records.Lock()
+    defer db.records.Unlock()
 
     for _, rec := range records {
 
-        if rec.Id == "" {
-            rec.Id = config.GetIdRec(&rec)
-        }
+        rec.Id = config.GetIdRec(&rec)
 
         _, found := db.records.items[rec.Id]
+        if !found && len(db.records.items) >= db.config.Limit {
+            return errors.New("cache limit exceeded")
+        }
+
         if found {
             continue
         }
 
-        items = append(items, rec)
+        go db.SaveRecord(rec)
+
+        if _, ok := db.records.index[rec.LocalAddr.Name]; !ok {
+            db.records.index[rec.LocalAddr.Name] = make(map[string]bool)
+        }
+
+        rec.Timestamp = time.Now().UTC().Unix()
+        db.records.index[rec.LocalAddr.Name][rec.Id] = true
+        db.records.items[rec.Id] = rec
+        
     }
 
-    db.records.RUnlock()
-
-    return db.SaveRecords(items)
+    return nil
 }
 
 func (db *Client) SaveTracert(records []config.SockTable) error {
@@ -279,45 +291,53 @@ func (db *Client) LoadRecords(args config.RecArgs) ([]config.SockTable, error) {
     return items, nil
 }
 
+func (db *Client) SaveRecord(rec config.SockTable) error {
+    sql := "replace into records (id,timestamp,localName,localIP,remoteName,remoteIP,relation,options) values (?,?,?,?,?,?,?,?)"
+
+    relation, err := json.Marshal(rec.Relation)
+    if err != nil {
+        return err
+    }
+
+    options, err := json.Marshal(rec.Options)
+    if err != nil {
+        return err
+    }
+        
+    _, err = db.client.Exec(
+        sql, 
+        rec.Id, 
+        time.Now().UTC().Unix(),
+        rec.LocalAddr.Name, 
+        rec.LocalAddr.IP, 
+        rec.RemoteAddr.Name, 
+        rec.RemoteAddr.IP,
+        relation, 
+        options, 
+    )
+
+    if err != nil {
+        return err
+    }
+
+    return nil
+}
+
 func (db *Client) SaveRecords(records []config.SockTable) error {
     db.records.Lock()
     defer db.records.Unlock()
-
-    sql := "replace into records (id,timestamp,localName,localIP,remoteName,remoteIP,relation,options) values (?,?,?,?,?,?,?,?)"
 
     for _, rec := range records {
 
         rec.Id = config.GetIdRec(&rec)
 
-        _, found := db.records.items[rec.Id]
+        item, found := db.records.items[rec.Id]
         if !found && len(db.records.items) >= db.config.Limit {
             return errors.New("cache limit exceeded")
         }
 
-        relation, err := json.Marshal(rec.Relation)
-        if err != nil {
-            continue
-        }
-
-        options, err := json.Marshal(rec.Options)
-        if err != nil {
-            continue
-        }
-            
-        _, err = db.client.Exec(
-            sql, 
-            rec.Id, 
-            time.Now().UTC().Unix(),
-            rec.LocalAddr.Name, 
-            rec.LocalAddr.IP, 
-            rec.RemoteAddr.Name, 
-            rec.RemoteAddr.IP,
-            relation, 
-            options, 
-        )
-
-        if err != nil {
-            return err
+        if !found || (item.Relation != rec.Relation || item.Options != rec.Options) {
+            go db.SaveRecord(rec)
         }
 
         if _, ok := db.records.index[rec.LocalAddr.Name]; !ok {

@@ -19,7 +19,7 @@ import (
     "github.com/prometheus/client_golang/prometheus"
     "github.com/ltkh/netmap/internal/config"
     "github.com/ltkh/netmap/internal/client"
-    //"github.com/ltkh/netmap/internal/db"
+    "github.com/ltkh/netmap/internal/db"
 )
 
 var (
@@ -49,13 +49,14 @@ var (
 type Api struct {
     Conf         *config.Config            `json:"conf"`
     Peers        *Peers                    `json:"peers"`
+    DB           *db.DbClient              `json:"db"`
 }
 
 type Resp struct {
     Status       string                    `json:"status"`
     Error        string                    `json:"error,omitempty"`
     Warnings     []string                  `json:"warnings,omitempty"`
-    Data         interface{}               `json:"data"`
+    Data         []interface{}             `json:"data"`
 }
 
 type Records struct {
@@ -90,9 +91,13 @@ func readUserIP(r *http.Request) string {
 }
 
 func encodeResp(resp *Resp) []byte {
+    if len(resp.Data) == 0 {
+        resp.Data = make([]interface{}, 0)
+    }
+
     jsn, err := json.Marshal(resp)
     if err != nil {
-        return encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)})
+        return encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]interface{}, 0)})
     }
     return jsn
 }
@@ -120,10 +125,11 @@ func MonRegister(){
     prometheus.MustRegister(responseTime)
 }
 
-func NewAPI(conf *config.Config, peers []string) (*Api, error) {
+func NewAPI(conf *config.Config, peers []string, db *db.DbClient) (*Api, error) {
     api := &Api{
         Conf: conf,
         Peers: &Peers{items: make(map[string]*rpc.Client)},
+        DB: db,
     }
 
     for _, id := range peers {
@@ -174,7 +180,7 @@ func (api *Api) ApiStatus(w http.ResponseWriter, r *http.Request) {
                 if err != nil {
                     log.Printf("[error] %v - %s", err, r.URL.Path)
                     w.WriteHeader(400)
-                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
                     return
                 }
                 defer reader.Close()
@@ -187,7 +193,7 @@ func (api *Api) ApiStatus(w http.ResponseWriter, r *http.Request) {
         if err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
             w.WriteHeader(400)
-            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
             return
         }
 
@@ -196,7 +202,7 @@ func (api *Api) ApiStatus(w http.ResponseWriter, r *http.Request) {
         if err := json.Unmarshal(body, &netstat); err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
             w.WriteHeader(400)
-            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
             return
         }
 
@@ -224,7 +230,7 @@ func (api *Api) ApiStatus(w http.ResponseWriter, r *http.Request) {
     }
 
     w.WriteHeader(405)
-    w.Write(encodeResp(&Resp{Status:"error", Error:"method not allowed", Data:make([]int, 0)}))
+    w.Write(encodeResp(&Resp{Status:"error", Error:"method not allowed"}))
 }
 
 func (api *Api) ApiNetstat(w http.ResponseWriter, r *http.Request) {
@@ -241,7 +247,7 @@ func (api *Api) ApiNetstat(w http.ResponseWriter, r *http.Request) {
                 if err != nil {
                     log.Printf("[error] %v - %s", err, r.URL.Path)
                     w.WriteHeader(400)
-                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
                     return
                 }
                 defer reader.Close()
@@ -254,7 +260,7 @@ func (api *Api) ApiNetstat(w http.ResponseWriter, r *http.Request) {
         if err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
             w.WriteHeader(400)
-            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
             return
         }
 
@@ -263,7 +269,7 @@ func (api *Api) ApiNetstat(w http.ResponseWriter, r *http.Request) {
         if err := json.Unmarshal(body, &netstat); err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
             w.WriteHeader(400)
-            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
             return
         }
 
@@ -291,7 +297,7 @@ func (api *Api) ApiNetstat(w http.ResponseWriter, r *http.Request) {
     }
 
     w.WriteHeader(405)
-    w.Write(encodeResp(&Resp{Status:"error", Error:"method not allowed", Data:make([]int, 0)}))
+    w.Write(encodeResp(&Resp{Status:"error", Error:"method not allowed"}))
 }
 
 func (api *Api) ApiTracert(w http.ResponseWriter, r *http.Request) {
@@ -308,7 +314,7 @@ func (api *Api) ApiTracert(w http.ResponseWriter, r *http.Request) {
                 if err != nil {
                     log.Printf("[error] %v - %s", err, r.URL.Path)
                     w.WriteHeader(400)
-                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
                     return
                 }
                 defer reader.Close()
@@ -321,7 +327,7 @@ func (api *Api) ApiTracert(w http.ResponseWriter, r *http.Request) {
         if err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
             w.WriteHeader(400)
-            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
             return
         }
 
@@ -330,7 +336,7 @@ func (api *Api) ApiTracert(w http.ResponseWriter, r *http.Request) {
         if err := json.Unmarshal(body, &netstat); err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
             w.WriteHeader(400)
-            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
             return
         }
 
@@ -358,7 +364,7 @@ func (api *Api) ApiTracert(w http.ResponseWriter, r *http.Request) {
     }
 
     w.WriteHeader(405)
-    w.Write(encodeResp(&Resp{Status:"error", Error:"method not allowed", Data:make([]int, 0)}))
+    w.Write(encodeResp(&Resp{Status:"error", Error:"method not allowed"}))
 }
 
 func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
@@ -369,7 +375,7 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
 
     if r.Method == "GET" {
 
-        rc := Records{items: make(map[string]config.SockTable)}
+        //rc := Records{items: make(map[string]config.SockTable)}
         var args config.RecArgs
 
         for k, v := range r.URL.Query() {
@@ -384,16 +390,49 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
                     i, err := strconv.Atoi(v[0])
                     if err != nil {
                         w.WriteHeader(400)
-                        w.Write(encodeResp(&Resp{Status:"error", Error:fmt.Sprintf("executing query: invalid parameter: %v", k), Data:make([]int, 0)}))
+                        w.Write(encodeResp(&Resp{Status:"error", Error:fmt.Sprintf("executing query: invalid parameter: %v", k)}))
                         return
                     }
                     args.Timestamp = int64(i)
             }
         }
 
+        items, err := db.DbClient.LoadRecords(*api.DB, args)
+        if err != nil {
+            log.Printf("[error] %v - %s", err, r.URL.Path)
+            w.WriteHeader(500)
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
+            return
+        }
+
+        var records []interface{}
+        for _, item := range items{
+            records = append(records, item)
+        }
+
+        data := encodeResp(&Resp{Status:"success", Data:records})
+        /*
+        buf, ok, err := compressData(data, r.Header.Get("Accept-Encoding"))
+        if err != nil {
+            log.Printf("[error] %v - %s", err, r.URL.Path)
+            w.WriteHeader(500)
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
+            return
+        }
+
+        if ok {
+            w.Header().Set("Content-Encoding", "gzip")
+        }
+        */
+
+        w.WriteHeader(200)
+        w.Write(data)
+        return
+
+        /*
         api.Peers.RLock()
         defer api.Peers.RUnlock()
-        for id, client := range api.Peers.items {
+        for id, client := range api.Peers.items { 
 
             wg.Add(1)
 
@@ -447,7 +486,7 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
         if err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
             w.WriteHeader(500)
-            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
             return
         }
 
@@ -458,6 +497,7 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
         w.WriteHeader(200)
         w.Write(buf.Bytes())
         return
+        */
     }
 
     if r.Method == "POST" {
@@ -471,7 +511,7 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
                 if err != nil {
                     log.Printf("[error] %v - %s", err, r.URL.Path)
                     w.WriteHeader(400)
-                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
                     return
                 }
                 defer reader.Close()
@@ -484,7 +524,7 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
         if err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
             w.WriteHeader(400)
-            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
             return
         }
 
@@ -493,7 +533,7 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
         if err := json.Unmarshal(body, &netstat); err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
             w.WriteHeader(400)
-            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
             return
         }
 
@@ -532,7 +572,10 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
         defer api.Peers.RUnlock()
         for id, client := range api.Peers.items {
 
+            wg.Add(1)
+
             go func(id string, client *rpc.Client) {
+                defer wg.Done()
 
                 err := client.Call("RPC.SetRecords", records, nil)
                 if err != nil {
@@ -546,6 +589,8 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
             }(id, client)
             
         }
+
+        wg.Wait()
         
         w.WriteHeader(204)
         return
@@ -564,7 +609,7 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
                 if err != nil {
                     log.Printf("[error] %v - %s", err, r.URL.Path)
                     w.WriteHeader(400)
-                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
                     return
                 }
                 defer reader.Close()
@@ -577,7 +622,7 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
         if err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
             w.WriteHeader(400)
-            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
             return
         }
 
@@ -586,7 +631,7 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
         if err := json.Unmarshal(body, &keys); err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
             w.WriteHeader(400)
-            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
             return
         }
 
@@ -622,24 +667,24 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
 
         for _, err := range er.items {
             w.WriteHeader(500)
-            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
             return
         }
 
         w.WriteHeader(200)
-        w.Write(encodeResp(&Resp{Status:"success", Data:make([]int, 0)}))
+        w.Write(encodeResp(&Resp{Status:"success"}))
         return
     }
 
     w.WriteHeader(405)
-    w.Write(encodeResp(&Resp{Status:"error", Error:"method not allowed", Data:make([]int, 0)}))
+    w.Write(encodeResp(&Resp{Status:"error", Error:"method not allowed"}))
 }
 
 func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
 
     var wg sync.WaitGroup
-    var exceptions []config.Exception
+    var exceptions []interface{}
 
     if r.Method == "GET" {
 
@@ -696,16 +741,12 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
             exceptions = append(exceptions, item)
         }
 
-        if len(exceptions) == 0 {
-            exceptions = make([]config.Exception, 0)
-        }
-
         data := encodeResp(&Resp{Status:"success", Data:exceptions})
         buf, ok, err := compressData(data, r.Header.Get("Accept-Encoding"))
         if err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
             w.WriteHeader(500)
-            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
             return
         }
         if ok {
@@ -728,7 +769,7 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
                 if err != nil {
                     log.Printf("[error] %v - %s", err, r.URL.Path)
                     w.WriteHeader(400)
-                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
                     return
                 }
                 defer reader.Close()
@@ -741,7 +782,7 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
         if err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
             w.WriteHeader(400)
-            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
             return
         }
 
@@ -750,7 +791,7 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
         if err := json.Unmarshal(body, &expdata); err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
             w.WriteHeader(400)
-            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
             return
         }
 
@@ -797,7 +838,7 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
                 if err != nil {
                     log.Printf("[error] %v - %s", err, r.URL.Path)
                     w.WriteHeader(400)
-                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
                     return
                 }
                 defer reader.Close()
@@ -810,7 +851,7 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
         if err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
             w.WriteHeader(400)
-            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
             return
         }
 
@@ -819,7 +860,7 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
         if err := json.Unmarshal(body, &keys); err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
             w.WriteHeader(400)
-            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
             return
         }
 
@@ -855,17 +896,17 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
 
         for _, err := range er.items {
             w.WriteHeader(500)
-            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
             return
         }
 
         w.WriteHeader(200)
-        w.Write(encodeResp(&Resp{Status:"success", Data:make([]int, 0)}))
+        w.Write(encodeResp(&Resp{Status:"success"}))
         return
     }
 
     w.WriteHeader(405)
-    w.Write(encodeResp(&Resp{Status:"error", Error:"method not allowed", Data:make([]int, 0)}))
+    w.Write(encodeResp(&Resp{Status:"error", Error:"method not allowed"}))
 }
 
 func (api *Api) ApiWebhook(w http.ResponseWriter, r *http.Request) {
@@ -882,7 +923,7 @@ func (api *Api) ApiWebhook(w http.ResponseWriter, r *http.Request) {
                 if err != nil {
                     log.Printf("[error] %v - %s", err, r.URL.Path)
                     w.WriteHeader(400)
-                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+                    w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
                     return
                 }
                 defer reader.Close()
@@ -895,7 +936,7 @@ func (api *Api) ApiWebhook(w http.ResponseWriter, r *http.Request) {
         if err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
             w.WriteHeader(400)
-            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error(), Data:make([]int, 0)}))
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
             return
         }
 
@@ -916,5 +957,5 @@ func (api *Api) ApiWebhook(w http.ResponseWriter, r *http.Request) {
     }
 
     w.WriteHeader(405)
-    w.Write(encodeResp(&Resp{Status:"error", Error:"method not allowed", Data:make([]int, 0)}))
+    w.Write(encodeResp(&Resp{Status:"error", Error:"method not allowed"}))
 }

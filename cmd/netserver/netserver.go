@@ -25,28 +25,12 @@ var (
 )
 
 func main() {
-	var serverURL string
-
-	if envURL := os.Getenv("NETSERVER_CLIENT_ADDRESS"); envURL != "" {
-		serverURL = envURL
-	} else {
-		flag.StringVar(&serverURL, "listen.client-address", "127.0.0.1:8084", "listen client address")
-		flag.Parse()
-	}
-
-	var configFolder string
-
-	if envFolder := os.Getenv("NETSERVER_CONFIG_FILE"); envFolder != "" {
-		configFolder = envFolder
-	} else {
-		flag.StringVar(&configFolder, "config.file", "config/config.yml", "config file")
-		flag.Parse()
-	}
-
 	// Command-line flag parsing
+	clAddress := flag.String("listen.client-address", "127.0.0.1:8084", "listen client address")
 	prAddress := flag.String("listen.peer-address", "127.0.0.1:8085", "listen peer address")
 	initCluster := flag.String("initial-cluster", "", "initial cluster nodes")
 	connString := flag.String("db.conn-string", "", "db connection string")
+	cfFile := flag.String("config.file", "config/config.yml", "config file")
 	lgFile := flag.String("log.file", "", "log file")
 	logMaxSize := flag.Int("log.max-size", 1, "log max size")
 	logMaxBackups := flag.Int("log.max-backups", 3, "log max backups")
@@ -54,6 +38,14 @@ func main() {
 	logCompress := flag.Bool("log.compress", true, "log compress")
 	version := flag.Bool("version", false, "show netserver version")
 	flag.Parse()
+
+	if os.Getenv("NETSERVER_CLIENT_ADDRESS") != "" {
+		*clAddress = os.Getenv("NETSERVER_CLIENT_ADDRESS")
+	} 
+
+    if os.Getenv("NETSERVER_CONFIG_FILE") != "" {
+		*cfFile = os.Getenv("NETSERVER_CONFIG_FILE")
+	} 
 
 	// Show version
 	if *version {
@@ -73,7 +65,7 @@ func main() {
 	}
 
 	// Loading configuration file
-	cfg, err := config.New(configFolder)
+	cfg, err := config.New(cfFile)
 	if err != nil {
 		log.Fatalf("[error] %v", err)
 	}
@@ -110,7 +102,7 @@ func main() {
 	}
 
 	// Creating API
-	apiV1, err := v1.NewAPI(cfg, peers)
+	apiV1, err := v1.NewAPI(cfg, peers, rpcV1.DB)
 	if err != nil {
 		log.Fatalf("[error] %v", err)
 	}
@@ -131,12 +123,13 @@ func main() {
 	http.Handle("/metrics", promhttp.Handler())
 
 	go func(cfg *config.Global) {
+		log.Printf("[info] listen client address: %v", *clAddress)
 		if cfg.CertFile != "" && cfg.CertKey != "" {
-			if err := http.ListenAndServeTLS(serverURL, cfg.CertFile, cfg.CertKey, nil); err != nil {
+			if err := http.ListenAndServeTLS(*clAddress, cfg.CertFile, cfg.CertKey, nil); err != nil {
 				log.Fatalf("[error] %v", err)
 			}
 		} else {
-			if err := http.ListenAndServe(serverURL, nil); err != nil {
+			if err := http.ListenAndServe(*clAddress, nil); err != nil {
 				log.Fatalf("[error] %v", err)
 			}
 		}
@@ -149,19 +142,14 @@ func main() {
 		}
 	}()
 
+	log.Print("[info] netserver started -_^")
+
 	// Program completion signal processing
 	c := make(chan os.Signal, 2)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	go func() {
+	for {
 		<-c
 		log.Print("[info] netserver stopped")
 		os.Exit(0)
-	}()
-
-	log.Print("[info] netserver started -_^")
-
-	// Daemon mode
-	for {
-		time.Sleep(600 * time.Second)
 	}
 }

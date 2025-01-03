@@ -108,18 +108,18 @@ func GetHash(text string) string {
 }
 
 func GetIdRec(i *SockTable) string {
-    return GetHash(fmt.Sprintf("%v:%v:%v:%v:%v:%v", i.LocalAddr.IP, i.RemoteAddr.IP, i.Relation.Mode, i.Relation.Port))
+    return GetHash(fmt.Sprintf("%v:%v:%v:%v", i.LocalAddr.IP, i.RemoteAddr.IP, i.Relation.Mode, i.Relation.Port))
 }
 
 func GetIdExp(i *Exception) string {
     return GetHash(fmt.Sprintf("%v:%v:%v", i.AccountID, i.HostMask, i.IgnoreMask))
 }
 
-func New(filename string) (*Config, error) {
+func New(filename *string) (*Config, error) {
 
     cfg := &Config{}
 
-    content, err := ioutil.ReadFile(filename)
+    content, err := ioutil.ReadFile(*filename)
     if err != nil {
        return cfg, err
     }
