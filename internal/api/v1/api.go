@@ -125,11 +125,11 @@ func MonRegister(){
     prometheus.MustRegister(responseTime)
 }
 
-func NewAPI(conf *config.Config, peers []string, db *db.DbClient) (*Api, error) {
+func NewAPI(conf *config.Config, peers []string, db db.DbClient) (*Api, error) {
     api := &Api{
         Conf: conf,
         Peers: &Peers{items: make(map[string]*rpc.Client)},
-        DB: db,
+        DB: &db,
     }
 
     for _, id := range peers {
@@ -407,6 +407,9 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
 
         var records []interface{}
         for _, item := range items{
+            if item.Timestamp < args.Timestamp {
+                continue
+            }
             records = append(records, item)
         }
 

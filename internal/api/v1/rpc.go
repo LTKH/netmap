@@ -20,21 +20,17 @@ import (
 )
 
 type RPC struct{
-    DB    *db.DbClient `json:"db"`
+    DB *db.DbClient
 }
 
-func NewRPC(conf *config.Config) (*RPC, error) {
-    client, err := db.NewClient(conf.DB)
-    if err != nil {
+func NewRPC(conf *config.Config, db db.DbClient) (*RPC, error) {
+    if err := db.CreateTables(); err != nil {
         return &RPC{}, err
     }
-    if err := client.CreateTables(); err != nil {
+    if err := db.LoadTables(); err != nil {
         return &RPC{}, err
     }
-    if err := client.LoadTables(); err != nil {
-        return &RPC{}, err
-    }
-    return &RPC{DB: &client}, nil
+    return &RPC{DB: &db}, nil
 }
 
 func (rpc *RPC) SetStatus(items []config.SockTable, reply *string) error {

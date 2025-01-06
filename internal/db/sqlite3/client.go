@@ -3,6 +3,7 @@ package sqlite3
 import (
     "os"
     "fmt"
+    "log"
     //"time"
     "sync"
     //"net"
@@ -19,9 +20,14 @@ import (
     "github.com/ltkh/netmap/internal/config"
 )
 
+var (
+    queue_limit = 100000
+)
+
 type Client struct {
     records    Records 
     exceptions Exceptions
+    queue      chan config.SockTable
     client     *sql.DB
     config     *config.DB
 }
@@ -55,7 +61,7 @@ func New(conf *config.DB) (*Client, error) {
         conf.Limit = 1000000
     }
 
-    client := Client{
+    db := Client{
         records: Records{
             items: make(map[string]config.SockTable),
             index: make(map[string]map[string]bool),
@@ -63,11 +69,19 @@ func New(conf *config.DB) (*Client, error) {
         exceptions: Exceptions{
             items: make(map[string]config.Exception),
         },
+        queue: make(chan config.SockTable, queue_limit),
         client: conn, 
         config: conf,
     }
 
-    return &client, nil
+    go func(){
+        for {
+            rec := <- db.queue
+            db.SaveRecord(rec)
+        }
+    }()
+
+    return &db, nil
 }
 
 func (db *Client) Close() error {
@@ -181,9 +195,7 @@ func (db *Client) SaveStatus(records []config.SockTable) error {
 
     for _, rec := range records {
 
-        if rec.Id == "" {
-            rec.Id = config.GetIdRec(&rec)
-        }
+        rec.Id = config.GetIdRec(&rec)
 
         item, found := db.records.items[rec.Id]
         if !found {
@@ -193,10 +205,13 @@ func (db *Client) SaveStatus(records []config.SockTable) error {
         item.Timestamp = time.Now().UTC().Unix()
         if item.Relation != rec.Relation {
             item.Relation = rec.Relation
-            go db.SaveRecord(rec)
+            if len(db.queue) < queue_limit {
+                db.queue <- rec
+            } else {
+                log.Print("[error] DB write queue is full")
+            }
         }
         db.records.items[rec.Id] = item
-
     }
 
     return nil
@@ -219,7 +234,11 @@ func (db *Client) SaveNetstat(records []config.SockTable) error {
             continue
         }
 
-        go db.SaveRecord(rec)
+        if len(db.queue) < queue_limit {
+            db.queue <- rec
+        } else {
+            log.Print("[error] DB write queue is full")
+        }
 
         if _, ok := db.records.index[rec.LocalAddr.Name]; !ok {
             db.records.index[rec.LocalAddr.Name] = make(map[string]bool)
@@ -228,7 +247,6 @@ func (db *Client) SaveNetstat(records []config.SockTable) error {
         rec.Timestamp = time.Now().UTC().Unix()
         db.records.index[rec.LocalAddr.Name][rec.Id] = true
         db.records.items[rec.Id] = rec
-        
     }
 
     return nil
@@ -240,9 +258,7 @@ func (db *Client) SaveTracert(records []config.SockTable) error {
 
     for _, rec := range records {
 
-        if rec.Id == "" {
-            rec.Id = config.GetIdRec(&rec)
-        }
+        rec.Id = config.GetIdRec(&rec)
 
         item, found := db.records.items[rec.Id]
         if !found {
@@ -259,7 +275,6 @@ func (db *Client) SaveTracert(records []config.SockTable) error {
 
         item.Timestamp = time.Now().UTC().Unix()
         db.records.items[rec.Id] = item
-
     }
 
     db.records.Unlock()
@@ -337,7 +352,11 @@ func (db *Client) SaveRecords(records []config.SockTable) error {
         }
 
         if !found || (item.Relation != rec.Relation || item.Options != rec.Options) {
-            go db.SaveRecord(rec)
+            if len(db.queue) < queue_limit {
+                db.queue <- rec
+            } else {
+                log.Print("[error] DB write queue is full")
+            }
         }
 
         if _, ok := db.records.index[rec.LocalAddr.Name]; !ok {

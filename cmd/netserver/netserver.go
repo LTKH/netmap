@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ltkh/netmap/internal/db"
 	v1 "github.com/ltkh/netmap/internal/api/v1"
 	"github.com/ltkh/netmap/internal/config"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -73,8 +74,14 @@ func main() {
 		cfg.DB.ConnString = *connString
 	}
 
+	// Creating DB client
+	clientDB, err := db.NewClient(cfg.DB)
+	if err != nil {
+		log.Fatalf("[error] %v", err)
+	}
+
 	// Creating RPC
-	rpcV1, err := v1.NewRPC(cfg)
+	rpcV1, err := v1.NewRPC(cfg, clientDB)
 	if err != nil {
 		log.Fatalf("[error] %v", err)
 	}
@@ -102,7 +109,7 @@ func main() {
 	}
 
 	// Creating API
-	apiV1, err := v1.NewAPI(cfg, peers, rpcV1.DB)
+	apiV1, err := v1.NewAPI(cfg, peers, clientDB)
 	if err != nil {
 		log.Fatalf("[error] %v", err)
 	}
