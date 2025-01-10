@@ -44,6 +44,10 @@ func main() {
 		*clAddress = os.Getenv("NETSERVER_CLIENT_ADDRESS")
 	} 
 
+	if os.Getenv("NETSERVER_PEER_ADDRESS") != "" {
+		*prAddress = os.Getenv("NETSERVER_PEER_ADDRESS")
+	} 
+
     if os.Getenv("NETSERVER_CONFIG_FILE") != "" {
 		*cfFile = os.Getenv("NETSERVER_CONFIG_FILE")
 	} 
