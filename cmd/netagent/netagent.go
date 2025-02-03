@@ -476,9 +476,13 @@ func main() {
                             address := fmt.Sprintf("%v:%v", nr.RemoteAddr.IP.String(), nr.Relation.Port)
                             result, response = dialTimeout(nr.Relation.Mode, address, timeout)
         
-                            if result == 1 || response >= nr.Options.MaxRespTime {
+                            if result == 1 || response >= nr.Options.MaxRespTime || nr.Relation.Trace == 2 {
                                 if nr.Relation.Trace == 0 && nr.Options.Command != "" {
                                     trace = 1
+                                    go runTrace(nr.Options.Command, tags, clnt)
+                                }
+                                if nr.Relation.Trace == 2 && nr.Options.Command != "" {
+                                    trace = 0
                                     go runTrace(nr.Options.Command, tags, clnt)
                                 }
                             }
