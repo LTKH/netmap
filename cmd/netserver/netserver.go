@@ -10,13 +10,14 @@ import (
 	"net/rpc"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/ltkh/netmap/internal/db"
 	v1 "github.com/ltkh/netmap/internal/api/v1"
 	"github.com/ltkh/netmap/internal/config"
+	"github.com/ltkh/netmap/internal/db"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
@@ -26,56 +27,50 @@ var (
 )
 
 func main() {
-	// Command-line flag parsing
-	clAddress := flag.String("listen.client-address", "127.0.0.1:8084", "listen client address")
-	prAddress := flag.String("listen.peer-address", "127.0.0.1:8085", "listen peer address")
-	initCluster := flag.String("initial-cluster", "", "initial cluster nodes")
-	connString := flag.String("db.conn-string", "", "db connection string")
-	cfFile := flag.String("config.file", "config/config.yml", "config file")
-	lgFile := flag.String("log.file", "", "log file")
-	logMaxSize := flag.Int("log.max-size", 1, "log max size")
-	logMaxBackups := flag.Int("log.max-backups", 3, "log max backups")
-	logMaxAge := flag.Int("log.max-age", 10, "log max age")
-	logCompress := flag.Bool("log.compress", true, "log compress")
-	version := flag.Bool("version", false, "show netserver version")
+	// Command-line flag parsing with environment variables
+	var clAddress, prAddress, initCluster, connString, cfFile, lgFile string
+	var logMaxSize, logMaxBackups, logMaxAge int
+	var logCompress, version, logHTTPRequests bool
+
+	flag.StringVar(&clAddress, "listen.client-address", getEnv("NETSERVER_CLIENT_ADDRESS", "127.0.0.1:8084"), "listen client address")
+	flag.StringVar(&prAddress, "listen.peer-address", getEnv("NETSERVER_PEER_ADDRESS", "127.0.0.1:8085"), "listen peer address")
+	flag.StringVar(&initCluster, "initial-cluster", getEnv("NETSERVER_INITIAL_CLUSTER", ""), "initial cluster nodes")
+	flag.StringVar(&connString, "db.conn-string", getEnv("NETSERVER_DB_CONN_STRING", ""), "db connection string")
+	flag.StringVar(&cfFile, "config.file", getEnv("NETSERVER_CONFIG_FILE", "config/config.yml"), "config file")
+	flag.StringVar(&lgFile, "log.file", getEnv("NETSERVER_LOG_FILE", ""), "log file")
+	flag.IntVar(&logMaxSize, "log.max-size", getEnvInt("NETSERVER_LOG_MAX_SIZE", 1), "log max size")
+	flag.IntVar(&logMaxBackups, "log.max-backups", getEnvInt("NETSERVER_LOG_MAX_BACKUPS", 3), "log max backups")
+	flag.IntVar(&logMaxAge, "log.max-age", getEnvInt("NETSERVER_LOG_MAX_AGE", 10), "log max age")
+	flag.BoolVar(&logCompress, "log.compress", getEnvBool("NETSERVER_LOG_COMPRESS", true), "log compress")
+	flag.BoolVar(&logHTTPRequests, "log.http-requests", getEnvBool("NETSERVER_LOG_HTTP_REQUESTS", false), "enable HTTP request logging")
+	flag.BoolVar(&version, "version", false, "show netserver version")
+
 	flag.Parse()
 
-	if os.Getenv("NETSERVER_CLIENT_ADDRESS") != "" {
-		*clAddress = os.Getenv("NETSERVER_CLIENT_ADDRESS")
-	} 
-
-	if os.Getenv("NETSERVER_PEER_ADDRESS") != "" {
-		*prAddress = os.Getenv("NETSERVER_PEER_ADDRESS")
-	} 
-
-    if os.Getenv("NETSERVER_CONFIG_FILE") != "" {
-		*cfFile = os.Getenv("NETSERVER_CONFIG_FILE")
-	} 
-
-	// Show version
-	if *version {
+	// Show version and exit if requested
+	if version {
 		fmt.Printf("%v\n", Version)
 		return
 	}
 
 	// Logging settings
-	if *lgFile != "" {
+	if lgFile != "" {
 		log.SetOutput(&lumberjack.Logger{
-			Filename:   *lgFile,
-			MaxSize:    *logMaxSize,    // megabytes after which new file is created
-			MaxBackups: *logMaxBackups, // number of backups
-			MaxAge:     *logMaxAge,     // days
-			Compress:   *logCompress,   // using gzip
+			Filename:   lgFile,
+			MaxSize:    logMaxSize,
+			MaxBackups: logMaxBackups,
+			MaxAge:     logMaxAge,
+			Compress:   logCompress,
 		})
 	}
 
-	// Loading configuration file
-	cfg, err := config.New(cfFile)
+	// Load configuration file
+	cfg, err := config.New(&cfFile) // Here we pass the pointer to cfFile
 	if err != nil {
 		log.Fatalf("[error] %v", err)
 	}
-	if *connString != "" {
-		cfg.DB.ConnString = *connString
+	if connString != "" {
+		cfg.DB.ConnString = connString
 	}
 
 	// Creating DB client
@@ -92,7 +87,7 @@ func main() {
 
 	// TCP Listen
 	go func() {
-		inbound, err := net.Listen("tcp", *prAddress)
+		inbound, err := net.Listen("tcp", prAddress)
 		if err != nil {
 			log.Fatalf("[error] %v", err)
 		}
@@ -102,14 +97,11 @@ func main() {
 
 	// Initial cluster nodes
 	peers := []string{}
-	if *initCluster != "" {
-		peers = strings.Split(*initCluster, ",")
+	if initCluster != "" {
+		peers = strings.Split(initCluster, ",")
 	}
-	if len(peers) == 0 && os.Getenv("NETSERVER_INITIAL_CLUSTER") != "" {
-		peers = strings.Split(os.Getenv("NETSERVER_INITIAL_CLUSTER"), ",")
-	}
-	if len(peers) == 0 && *prAddress != "" {
-		peers = append(peers, *prAddress)
+	if len(peers) == 0 && prAddress != "" {
+		peers = append(peers, prAddress)
 	}
 
 	// Creating API
@@ -118,29 +110,30 @@ func main() {
 		log.Fatalf("[error] %v", err)
 	}
 
-	// Enabled listen port
-	http.HandleFunc("/-/healthy", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte("OK"))
-	})
+	// Enable logging middleware only if logHTTPRequests is enabled
+	mux := http.NewServeMux()
+	mux.HandleFunc("/-/healthy", apiV1.ApiStatus)
+	mux.HandleFunc("/api/v1/netmap/status", apiV1.ApiStatus)
+	mux.HandleFunc("/api/v1/netmap/netstat", apiV1.ApiNetstat)
+	mux.HandleFunc("/api/v1/netmap/tracert", apiV1.ApiTracert)
+	mux.HandleFunc("/api/v1/netmap/records", apiV1.ApiRecords)
+	mux.HandleFunc("/api/v1/netmap/webhook", apiV1.ApiWebhook)
+	mux.HandleFunc("/api/v1/netmap/exceptions", apiV1.ApiExceptions)
+	mux.Handle("/metrics", promhttp.Handler())
 
-	http.HandleFunc("/api/v1/netmap/status", apiV1.ApiStatus)   //Only update (if exists)
-	http.HandleFunc("/api/v1/netmap/netstat", apiV1.ApiNetstat) //Only added (if not exists)
-	http.HandleFunc("/api/v1/netmap/tracert", apiV1.ApiTracert) //Run command
-	http.HandleFunc("/api/v1/netmap/records", apiV1.ApiRecords) //Write record
-	http.HandleFunc("/api/v1/netmap/webhook", apiV1.ApiWebhook)
-	http.HandleFunc("/api/v1/netmap/exceptions", apiV1.ApiExceptions)
-
-	http.Handle("/metrics", promhttp.Handler())
+	var handler http.Handler = mux
+	if logHTTPRequests {
+		handler = loggingMiddleware(mux)
+	}
 
 	go func(cfg *config.Global) {
-		log.Printf("[info] listen client address: %v", *clAddress)
+		log.Printf("[info] listen client address: %v", clAddress)
 		if cfg.CertFile != "" && cfg.CertKey != "" {
-			if err := http.ListenAndServeTLS(*clAddress, cfg.CertFile, cfg.CertKey, nil); err != nil {
+			if err := http.ListenAndServeTLS(clAddress, cfg.CertFile, cfg.CertKey, handler); err != nil {
 				log.Fatalf("[error] %v", err)
 			}
 		} else {
-			if err := http.ListenAndServe(*clAddress, nil); err != nil {
+			if err := http.ListenAndServe(clAddress, handler); err != nil {
 				log.Fatalf("[error] %v", err)
 			}
 		}
@@ -163,4 +156,48 @@ func main() {
 		log.Print("[info] netserver stopped")
 		os.Exit(0)
 	}
+}
+
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		log.Printf("[request] %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+		next.ServeHTTP(w, r)
+		duration := time.Since(start)
+		log.Printf("[response] %s %s completed in %v", r.Method, r.URL.Path, duration)
+	})
+}
+
+func getEnv(key string, defaultValue string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
+	}
+	return value
+}
+
+func getEnvInt(key string, defaultValue int) int {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
+	}
+	parsedValue, err := strconv.Atoi(value)
+	if err != nil {
+		log.Printf("[warning] invalid int value for %s, using default: %d", key, defaultValue)
+		return defaultValue
+	}
+	return parsedValue
+}
+
+func getEnvBool(key string, defaultValue bool) bool {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
+	}
+	parsedValue, err := strconv.ParseBool(value)
+	if err != nil {
+		log.Printf("[warning] invalid bool value for %s, using default: %v", key, defaultValue)
+		return defaultValue
+	}
+	return parsedValue
 }
