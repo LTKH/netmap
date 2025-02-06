@@ -482,7 +482,7 @@ func main() {
 								go runTrace(nr.Options.Command, tags, clnt, "netmapTraceroute")
 							}
 							if nr.Relation.Trace == 2 && nr.Options.Command != "" {
-								trace = 0
+								trace = 1
 								go runTrace(nr.Options.Command, tags, clnt, "netmapCustomCommand")
 							}
 						}
@@ -506,7 +506,7 @@ func main() {
 						return
 					}
 
-					if result == 0 && response < nr.Options.MaxRespTime {
+					if result == 0 && response < nr.Options.MaxRespTime && nr.Relation.Trace != 2 {
 						trace = 0
 					}
 
