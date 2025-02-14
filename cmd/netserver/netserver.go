@@ -112,7 +112,7 @@ func main() {
 
 	// Enable logging middleware only if logHTTPRequests is enabled
 	mux := http.NewServeMux()
-	mux.HandleFunc("/-/healthy", apiV1.ApiStatus)
+	mux.HandleFunc("/-/healthy", apiV1.ApiHealthy)
 	mux.HandleFunc("/api/v1/netmap/status", apiV1.ApiStatus)
 	mux.HandleFunc("/api/v1/netmap/netstat", apiV1.ApiNetstat)
 	mux.HandleFunc("/api/v1/netmap/tracert", apiV1.ApiTracert)
