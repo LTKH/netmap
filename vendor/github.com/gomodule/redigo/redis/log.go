@@ -16,7 +16,6 @@ package redis
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"log"
 	"time"
@@ -53,7 +52,7 @@ func (c *loggingConn) Close() error {
 	err := c.Conn.Close()
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "%sClose() -> (%v)", c.prefix, err)
-	c.logger.Output(2, buf.String()) // nolint: errcheck
+	c.logger.Output(2, buf.String())
 	return err
 }
 
@@ -113,18 +112,12 @@ func (c *loggingConn) print(method, commandName string, args []interface{}, repl
 		buf.WriteString(", ")
 	}
 	fmt.Fprintf(&buf, "%v)", err)
-	c.logger.Output(3, buf.String()) // nolint: errcheck
+	c.logger.Output(3, buf.String())
 }
 
 func (c *loggingConn) Do(commandName string, args ...interface{}) (interface{}, error) {
 	reply, err := c.Conn.Do(commandName, args...)
 	c.print("Do", commandName, args, reply, err)
-	return reply, err
-}
-
-func (c *loggingConn) DoContext(ctx context.Context, commandName string, args ...interface{}) (interface{}, error) {
-	reply, err := DoContext(c.Conn, ctx, commandName, args...)
-	c.print("DoContext", commandName, args, reply, err)
 	return reply, err
 }
 
@@ -143,12 +136,6 @@ func (c *loggingConn) Send(commandName string, args ...interface{}) error {
 func (c *loggingConn) Receive() (interface{}, error) {
 	reply, err := c.Conn.Receive()
 	c.print("Receive", "", nil, reply, err)
-	return reply, err
-}
-
-func (c *loggingConn) ReceiveContext(ctx context.Context) (interface{}, error) {
-	reply, err := ReceiveContext(c.Conn, ctx)
-	c.print("ReceiveContext", "", nil, reply, err)
 	return reply, err
 }
 

@@ -15,7 +15,6 @@
 package redis
 
 import (
-	"context"
 	"errors"
 	"time"
 )
@@ -61,35 +60,27 @@ func (c PubSubConn) Close() error {
 
 // Subscribe subscribes the connection to the specified channels.
 func (c PubSubConn) Subscribe(channel ...interface{}) error {
-	if err := c.Conn.Send("SUBSCRIBE", channel...); err != nil {
-		return err
-	}
+	c.Conn.Send("SUBSCRIBE", channel...)
 	return c.Conn.Flush()
 }
 
 // PSubscribe subscribes the connection to the given patterns.
 func (c PubSubConn) PSubscribe(channel ...interface{}) error {
-	if err := c.Conn.Send("PSUBSCRIBE", channel...); err != nil {
-		return err
-	}
+	c.Conn.Send("PSUBSCRIBE", channel...)
 	return c.Conn.Flush()
 }
 
 // Unsubscribe unsubscribes the connection from the given channels, or from all
 // of them if none is given.
 func (c PubSubConn) Unsubscribe(channel ...interface{}) error {
-	if err := c.Conn.Send("UNSUBSCRIBE", channel...); err != nil {
-		return err
-	}
+	c.Conn.Send("UNSUBSCRIBE", channel...)
 	return c.Conn.Flush()
 }
 
 // PUnsubscribe unsubscribes the connection from the given patterns, or from all
 // of them if none is given.
 func (c PubSubConn) PUnsubscribe(channel ...interface{}) error {
-	if err := c.Conn.Send("PUNSUBSCRIBE", channel...); err != nil {
-		return err
-	}
+	c.Conn.Send("PUNSUBSCRIBE", channel...)
 	return c.Conn.Flush()
 }
 
@@ -98,9 +89,7 @@ func (c PubSubConn) PUnsubscribe(channel ...interface{}) error {
 // The connection must be subscribed to at least one channel or pattern when
 // calling this method.
 func (c PubSubConn) Ping(data string) error {
-	if err := c.Conn.Send("PING", data); err != nil {
-		return err
-	}
+	c.Conn.Send("PING", data)
 	return c.Conn.Flush()
 }
 
@@ -115,13 +104,6 @@ func (c PubSubConn) Receive() interface{} {
 // override the connection's default timeout.
 func (c PubSubConn) ReceiveWithTimeout(timeout time.Duration) interface{} {
 	return c.receiveInternal(ReceiveWithTimeout(c.Conn, timeout))
-}
-
-// ReceiveContext is like Receive, but it allows termination of the receive
-// via a Context. If the call returns due to closure of the context's Done
-// channel the underlying Conn will have been closed.
-func (c PubSubConn) ReceiveContext(ctx context.Context) interface{} {
-	return c.receiveInternal(ReceiveContext(c.Conn, ctx))
 }
 
 func (c PubSubConn) receiveInternal(replyArg interface{}, errArg error) interface{} {
