@@ -6,8 +6,8 @@ account_id = 0
 [netstat]
 status = "disabled"
 incoming = true
-ignore_hosts = []
-interval = "60s"
+#ignore_hosts = ["_gateway:54229"]
+interval = "120s"
 
 [connections]
 command = "traceroute -m 3 -p {{ .port }} {{ .dst_name }}"

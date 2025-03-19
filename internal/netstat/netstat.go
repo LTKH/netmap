@@ -1,21 +1,39 @@
 package netstat
 
 import (
-    "os"
-    "net"
-    "time"
-    "log"
-    //"encoding/json"
-    "regexp"
-    "fmt"
-    "strings"
-    "github.com/ltkh/netmap/internal/config"
-    //"github.com/ltkh/netmap/internal/cache"
-    ns "github.com/cakturk/go-netstat/netstat"
+	"os"
+	"fmt"
+	"net"
+	"log"
+	"regexp"
+	"strings"
+	"github.com/ltkh/netmap/internal/config"
 )
 
 type NetstatData struct {
-    Data           []config.SockTable      `json:"data"`
+    Data []config.SockTable      `json:"data"`
+}
+
+// SockAddr represents an ip:port pair
+type SockAddr struct {
+	IP   net.IP
+	Port uint16
+}
+
+// SockTabEntry type represents each line of the /proc/net/[tcp|udp]
+type SockTabEntry struct {
+	ino        string
+	LocalAddr  *SockAddr
+	RemoteAddr *SockAddr
+	State      SkState
+	UID        uint32
+	Process    *Process
+}
+
+// Process holds the PID and process name to which each socket belongs
+type Process struct {
+	Pid  int
+	Name string
 }
 
 func Hostname() (string, error) {
@@ -47,28 +65,6 @@ func ignoreHosts(host string, port uint16, ihosts []string) bool {
     return false
 }
 
-func alreadyExists(ids map[string]bool, rec config.SockTable) (config.SockTable, bool) {
-
-    rec.Id = config.GetIdRec(&rec)
-    if _, ok := ids[rec.Id]; ok {
-        return rec, true
-    }
-
-    localAddr := rec.LocalAddr
-    remoteAddr := rec.RemoteAddr
-
-    rec.LocalAddr = remoteAddr
-    rec.LocalAddr = localAddr
-    rec.Relation.Port = localAddr.Port
-
-    rec.Id = config.GetIdRec(&rec)
-    if _, ok := ids[rec.Id]; ok {
-        return rec, true
-    }
-
-    return rec, false
-}
-
 func lookupAddr(ipAddress string) (string, error) {
     name, err := net.LookupAddr(ipAddress)
     if err != nil {
@@ -80,41 +76,75 @@ func lookupAddr(ipAddress string) (string, error) {
     return strings.Trim(name[0], "."), nil
 }
 
+func (s *SockAddr) String() string {
+	return fmt.Sprintf("%v:%d", s.IP, s.Port)
+}
+
+func (p *Process) String() string {
+	return fmt.Sprintf("%d/%s", p.Pid, p.Name)
+}
+
+// SkState type represents socket connection state
+type SkState uint8
+
+func (s SkState) String() string {
+	return skStates[s]
+}
+
+// AcceptFn is used to filter socket entries. The value returned indicates
+// whether the element is to be appended to the socket list.
+type AcceptFn func(*SockTabEntry) bool
+
+// NoopFilter - a test function returning true for all elements
+func NoopFilter(*SockTabEntry) bool { return true }
+
+// TCPSocks returns a slice of active TCP sockets containing only those
+// elements that satisfy the accept function
+func TCPSocks(accept AcceptFn) ([]SockTabEntry, error) {
+	return osTCPSocks(accept)
+}
+
+// TCP6Socks returns a slice of active TCP IPv4 sockets containing only those
+// elements that satisfy the accept function
+func TCP6Socks(accept AcceptFn) ([]SockTabEntry, error) {
+	return osTCP6Socks(accept)
+}
+
+// UDPSocks returns a slice of active UDP sockets containing only those
+// elements that satisfy the accept function
+func UDPSocks(accept AcceptFn) ([]SockTabEntry, error) {
+	return osUDPSocks(accept)
+}
+
+// UDP6Socks returns a slice of active UDP IPv6 sockets containing only those
+// elements that satisfy the accept function
+func UDP6Socks(accept AcceptFn) ([]SockTabEntry, error) {
+	return osUDP6Socks(accept)
+}
+
 func GetSocks(ihosts []string, ids map[string]bool, options config.Options, incoming, debug bool) (NetstatData, error) {
     var nd NetstatData
-    
-    nr := map[string]config.SockTable{}
-    
-    // Get hostname
-    name, err := Hostname()
-    if err != nil {
-        return nd, err
-    }
+	var err error
 
-    // Get socks
+	// Get socks
     for _, mode := range []string{"tcp", "udp"} {
 
-        var socks []ns.SockTabEntry
+        var socks []SockTabEntry
 
         switch mode {
             case "tcp":
-                socks, err = ns.TCPSocks(ns.NoopFilter)
+                socks, err = TCPSocks(NoopFilter)
                 if err != nil {
                     return nd, err
                 }
             case "udp":
-                socks, err = ns.UDPSocks(ns.NoopFilter)
+                socks, err = UDPSocks(NoopFilter)
                 if err != nil {
                     return nd, err
                 }
         }
 
         for _, e := range socks {
-
-            if len(nr) > 1000 {
-                break
-            }
-
             if e.RemoteAddr.IP.String() == "0.0.0.0" {
                 continue
             }
@@ -123,105 +153,63 @@ func GetSocks(ihosts []string, ids map[string]bool, options config.Options, inco
                 continue
             }
 
+			if e.LocalAddr.Port == 0 {
+                continue
+            }
+
             if e.RemoteAddr.Port == 0 {
                 continue
-            }
-
-            addr, err := lookupAddr(e.RemoteAddr.IP.String())
-            if err != nil {
-                log.Printf("[error] %v", err)
-                continue
-            }
-
-            if ignoreHosts(addr, e.RemoteAddr.Port, ihosts){
-                continue
-            }
-
-            if e.Process == nil {
-                e.Process = &ns.Process{}
             }
 
             rec := config.SockTable{
                 LocalAddr: config.SockAddr{
                     IP:          e.LocalAddr.IP,
                     Port:        e.LocalAddr.Port,
-                    Name:        name,
+                    //Name:        "",
                 },
                 RemoteAddr: config.SockAddr{
                     IP:          e.RemoteAddr.IP,
                     Port:        e.RemoteAddr.Port,
-                    Name:        addr,
+                    //Name:        "",
                 },
                 Relation: config.Relation{
                     Mode:        mode,
-                    Port:        e.RemoteAddr.Port,
+                    //Port:        e.RemoteAddr.Port,
                 },
-                Options: config.Options {
+                Options: config.Options{
                     Status:      options.Status,
                     Timeout:     options.Timeout,
                     MaxRespTime: options.MaxRespTime,
-                    Service:     e.Process.Name,
+                    //Service:     e.Process.Name,
                     AccountID:   options.AccountID,
                 },
             }
 
-            if _, ok := nr[config.GetIdRec(&rec)]; ok {
-                continue
-            }
+			if e.Process != nil {
+				rec.Options.Service = e.Process.Name
+			}
 
-            // Record already exists in the cache
-            if erec, ok := alreadyExists(ids, rec); ok {
-                nr[erec.Id] = erec
-                continue
-            }
-
-            conOut, err := net.DialTimeout(mode, e.RemoteAddr.String(), 3 * time.Second)
-            if err != nil {
-
-                if incoming {
-
-                    if ignoreHosts(name, e.LocalAddr.Port, ihosts){
-                        continue
-                    }
-
-                    conIn, err := net.DialTimeout(mode, e.LocalAddr.String(), 3 * time.Second)
-                    if err != nil {
-                        continue
-                    }
-                    conIn.Close()
-
-                    rec.LocalAddr.IP = e.RemoteAddr.IP
-                    rec.LocalAddr.Port = e.RemoteAddr.Port
-                    rec.LocalAddr.Name = addr
-                    rec.RemoteAddr.IP = e.LocalAddr.IP
-                    rec.RemoteAddr.Port = e.LocalAddr.Port
-                    rec.RemoteAddr.Name = name
-                    rec.Relation.Port = e.LocalAddr.Port
-
-                    if _, ok := nr[config.GetIdRec(&rec)]; ok {
-                        continue
-                    }
-
-                } else {
-                    continue
-                }
-
-            } else {
-                conOut.Close()
-            }
-
-            if debug == true {
-                log.Printf("[debug] netstat list %v:%v - %v:%v (%v)", e.LocalAddr.IP.String(), e.LocalAddr.Port, e.RemoteAddr.IP.String(), e.RemoteAddr.Port, mode)
-            }
+			if addr, err := lookupAddr(e.LocalAddr.IP.String()); err == nil {
+                rec.LocalAddr.Name = addr
+			}
             
+			if addr, err := lookupAddr(e.RemoteAddr.IP.String()); err == nil {
+                rec.RemoteAddr.Name = addr
+			}
+
+			if ignoreHosts(rec.RemoteAddr.Name, e.RemoteAddr.Port, ihosts){
+                continue
+            }
+
+			if debug == true {
+                log.Printf("[debug] netstat list %v %v (%v) - %v (%v)", mode, e.LocalAddr.String(), rec.LocalAddr.Name, e.RemoteAddr.String(), rec.RemoteAddr.Name)
+            }
+
             rec.Id = config.GetIdRec(&rec)
-            nr[rec.Id] = rec
-        }
-    }
+			nd.Data = append(nd.Data, rec)
+		}
 
-    for _, rec := range nr {
-        nd.Data = append(nd.Data, rec)
-    }
+	}
 
-    return nd, nil
+	return nd, nil
 }

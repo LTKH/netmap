@@ -46,12 +46,13 @@ type SockTable struct {
 type SockAddr struct {
     IP             net.IP                 `json:"ip"`
     Name           string                 `json:"name"`
-    Port           uint16                 `json:"-"`
+    Port           uint16                 `json:"port"`
 }
 
 type Relation struct {
     Mode           string                 `json:"mode"`
-    Port           uint16                 `json:"port"`
+    Type           string                 `json:"type,omitempty"`
+    Port           uint16                 `json:"port,omitempty"`
     Command        string                 `json:"command,omitempty"`
     Result         int                    `json:"result"`
     Response       float64                `json:"response"`
@@ -71,6 +72,7 @@ type Config struct {
     Global         *Global                `yaml:"global"`
     DB             *DB                    `yaml:"db"`
     Notifier       *Notifier              `yaml:"notifier"`
+    Collector      *Collector             `yaml:"collector"`
 }
 
 type Global struct {
@@ -89,6 +91,11 @@ type DB struct {
 }
 
 type Notifier struct {
+    URLs           []string               `yaml:"urls"`
+    Path           string                 `yaml:"path"`
+}
+
+type Collector struct {
     URLs           []string               `yaml:"urls"`
     Path           string                 `yaml:"path"`
 }
@@ -126,6 +133,14 @@ func New(filename *string) (*Config, error) {
 
     if err := yaml.UnmarshalStrict(content, cfg); err != nil {
         return cfg, err
+    }
+
+    if cfg.Notifier == nil {
+        cfg.Notifier = &Notifier{}
+    }
+
+    if cfg.Collector == nil {
+        cfg.Collector = &Collector{}
     }
     
     return cfg, nil

@@ -50,6 +50,7 @@ type Api struct {
     Conf         *config.Config            `json:"conf"`
     Peers        *Peers                    `json:"peers"`
     DB           *db.DbClient              `json:"db"`
+    Collect      chan config.SockTable     `json:"-"`
 }
 
 type Resp struct {
@@ -130,13 +131,48 @@ func NewAPI(conf *config.Config, peers []string, db db.DbClient) (*Api, error) {
         Conf: conf,
         Peers: &Peers{items: make(map[string]*rpc.Client)},
         DB: &db,
+        Collect: make(chan config.SockTable, 1000000),
     }
 
     for _, id := range peers {
         connections[id] = make(chan int, 1)
     }
 
+    go api.SendToCollect()
+
     return api, nil
+}
+
+func (api *Api) SendToCollect() {
+    for {
+        var netstat config.NetstatData
+
+        for i := 0; i < len(api.Collect); i++ {
+            rec := <-api.Collect
+            netstat.Data = append(netstat.Data, rec)
+        }
+
+        body, err := json.Marshal(netstat)
+        if err != nil {
+            log.Printf("[error] %v", err)
+            continue
+        }
+
+        if len(netstat.Data) > 0 {
+            config := client.HttpConfig{
+                URLs: api.Conf.Collector.URLs,
+            }
+            if api.Conf.Collector.Path == "" {
+                api.Conf.Collector.Path = "/api/v1/records"
+            }
+            
+            if err := httpClient.WriteRecords(config, api.Conf.Collector.Path, body); err != nil {
+                log.Printf("[error] %v (%v)", err, len(netstat.Data))
+            }
+        }
+
+        time.Sleep(15 * time.Second)
+    }
 }
 
 func (api *Api) ApiPeers() {
@@ -278,6 +314,7 @@ func (api *Api) ApiNetstat(w http.ResponseWriter, r *http.Request) {
             return
         }
 
+        /*
         api.Peers.RLock()
         defer api.Peers.RUnlock()
         for id, client := range api.Peers.items {
@@ -295,6 +332,24 @@ func (api *Api) ApiNetstat(w http.ResponseWriter, r *http.Request) {
     
             }(id, client)
             
+        }
+        */
+
+        wr := true
+        if len(api.Conf.Collector.URLs) > 0 {
+            for _, rec := range netstat.Data {
+                select {
+                case api.Collect <- rec:
+                    //log.Printf("[debug] len chan - %v", len(api.Collect))
+                default: 
+                    //log.Printf("[debug] chan not ready")
+                    wr = false
+                }
+            }
+        }
+
+        if !wr {
+            //log.Printf("[error] the channel is not ready for recording - %s", r.URL.Path)
         }
         
         w.WriteHeader(204)
@@ -419,93 +474,10 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
         }
 
         data := encodeResp(&Resp{Status:"success", Data:records})
-        /*
-        buf, ok, err := compressData(data, r.Header.Get("Accept-Encoding"))
-        if err != nil {
-            log.Printf("[error] %v - %s", err, r.URL.Path)
-            w.WriteHeader(500)
-            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
-            return
-        }
-
-        if ok {
-            w.Header().Set("Content-Encoding", "gzip")
-        }
-        */
 
         w.WriteHeader(200)
         w.Write(data)
         return
-
-        /*
-        api.Peers.RLock()
-        defer api.Peers.RUnlock()
-        for id, client := range api.Peers.items { 
-
-            wg.Add(1)
-
-            go func(id string, client *rpc.Client, rc *Records, wg *sync.WaitGroup) {
-                defer wg.Done()
-    
-                var items []config.SockTable
-                err := client.Call("RPC.GetRecords", args, &items)
-                if err != nil {
-                    log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
-                    if len(connections[id]) < 1 {
-                        connections[id] <- 1
-                    }
-                    return
-                }
-    
-                rc.Lock()
-                defer rc.Unlock()
-    
-                for _, item := range items{
-                    if args.Timestamp > item.Timestamp {
-                        continue
-                    }
-                    if it, ok := rc.items[item.Id]; ok {
-                        if it.Timestamp >= item.Timestamp {
-                            continue
-                        }
-                    }
-                    rc.items[item.Id] = item
-                }
-    
-            }(id, client, &rc, &wg)
-            
-        }
-
-        wg.Wait()
-
-        rc.RLock()
-        defer rc.RUnlock()
-
-        for _, item := range rc.items{
-            records = append(records, item)
-        }
-
-        if len(records) == 0 {
-            records = make([]config.SockTable, 0)
-        }
-
-        data := encodeResp(&Resp{Status:"success", Data:records})
-        buf, ok, err := compressData(data, r.Header.Get("Accept-Encoding"))
-        if err != nil {
-            log.Printf("[error] %v - %s", err, r.URL.Path)
-            w.WriteHeader(500)
-            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
-            return
-        }
-
-        if ok {
-            w.Header().Set("Content-Encoding", "gzip")
-        }
-
-        w.WriteHeader(200)
-        w.Write(buf.Bytes())
-        return
-        */
     }
 
     if r.Method == "POST" {

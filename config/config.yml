@@ -14,3 +14,7 @@ db:
 notifier:
   urls:           []
   path:           ""
+
+collector:
+  urls:           ["http://127.0.0.1:8086","http://127.0.0.1:8087"]
+  path:           "" 
