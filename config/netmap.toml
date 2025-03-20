@@ -4,6 +4,7 @@ content_encoding = "gzip"
 account_id = 0
 
 [netstat]
+urls = ["http://127.0.0.1:8084"]
 status = "disabled"
 incoming = true
 #ignore_hosts = ["_gateway:54229"]

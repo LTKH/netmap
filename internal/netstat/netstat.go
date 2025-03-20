@@ -1,13 +1,13 @@
 package netstat
 
 import (
-	"os"
-	"fmt"
-	"net"
-	"log"
-	"regexp"
-	"strings"
-	"github.com/ltkh/netmap/internal/config"
+    "os"
+    "fmt"
+    "net"
+    "log"
+    "regexp"
+    "strings"
+    "github.com/ltkh/netmap/internal/config"
 )
 
 type NetstatData struct {
@@ -16,24 +16,24 @@ type NetstatData struct {
 
 // SockAddr represents an ip:port pair
 type SockAddr struct {
-	IP   net.IP
-	Port uint16
+    IP   net.IP
+    Port uint16
 }
 
 // SockTabEntry type represents each line of the /proc/net/[tcp|udp]
 type SockTabEntry struct {
-	ino        string
-	LocalAddr  *SockAddr
-	RemoteAddr *SockAddr
-	State      SkState
-	UID        uint32
-	Process    *Process
+    ino        string
+    LocalAddr  *SockAddr
+    RemoteAddr *SockAddr
+    State      SkState
+    UID        uint32
+    Process    *Process
 }
 
 // Process holds the PID and process name to which each socket belongs
 type Process struct {
-	Pid  int
-	Name string
+    Pid  int
+    Name string
 }
 
 func Hostname() (string, error) {
@@ -77,18 +77,18 @@ func lookupAddr(ipAddress string) (string, error) {
 }
 
 func (s *SockAddr) String() string {
-	return fmt.Sprintf("%v:%d", s.IP, s.Port)
+    return fmt.Sprintf("%v:%d", s.IP, s.Port)
 }
 
 func (p *Process) String() string {
-	return fmt.Sprintf("%d/%s", p.Pid, p.Name)
+    return fmt.Sprintf("%d/%s", p.Pid, p.Name)
 }
 
 // SkState type represents socket connection state
 type SkState uint8
 
 func (s SkState) String() string {
-	return skStates[s]
+    return skStates[s]
 }
 
 // AcceptFn is used to filter socket entries. The value returned indicates
@@ -101,36 +101,41 @@ func NoopFilter(*SockTabEntry) bool { return true }
 // TCPSocks returns a slice of active TCP sockets containing only those
 // elements that satisfy the accept function
 func TCPSocks(accept AcceptFn) ([]SockTabEntry, error) {
-	return osTCPSocks(accept)
+    return osTCPSocks(accept)
 }
 
 // TCP6Socks returns a slice of active TCP IPv4 sockets containing only those
 // elements that satisfy the accept function
 func TCP6Socks(accept AcceptFn) ([]SockTabEntry, error) {
-	return osTCP6Socks(accept)
+    return osTCP6Socks(accept)
 }
 
 // UDPSocks returns a slice of active UDP sockets containing only those
 // elements that satisfy the accept function
 func UDPSocks(accept AcceptFn) ([]SockTabEntry, error) {
-	return osUDPSocks(accept)
+    return osUDPSocks(accept)
 }
 
 // UDP6Socks returns a slice of active UDP IPv6 sockets containing only those
 // elements that satisfy the accept function
 func UDP6Socks(accept AcceptFn) ([]SockTabEntry, error) {
-	return osUDP6Socks(accept)
+    return osUDP6Socks(accept)
 }
 
 func GetSocks(ihosts []string, ids map[string]bool, options config.Options, incoming, debug bool) (NetstatData, error) {
     var nd NetstatData
-	var err error
+    var err error
 
-	// Get socks
+    hostname, e := Hostname()
+    if e != nil {
+        return nd, e
+    }
+
+    // Get socks
     for _, mode := range []string{"tcp", "udp"} {
 
         var socks []SockTabEntry
-
+        
         switch mode {
             case "tcp":
                 socks, err = TCPSocks(NoopFilter)
@@ -144,11 +149,18 @@ func GetSocks(ihosts []string, ids map[string]bool, options config.Options, inco
                 }
         }
 
+        ports := map[uint16]net.IP{}
+        for _, e := range socks {
+            if e.RemoteAddr.IP.String() == "0.0.0.0" && e.RemoteAddr.Port == 0 {
+                ports[e.LocalAddr.Port] = e.LocalAddr.IP
+            }
+        }
+
         for _, e := range socks {
             if e.RemoteAddr.IP.String() == "0.0.0.0" {
                 continue
             }
-
+            
             if e.RemoteAddr.IP.String() == "127.0.0.1" {
                 continue
             }
@@ -157,11 +169,7 @@ func GetSocks(ihosts []string, ids map[string]bool, options config.Options, inco
                 continue
             }
 
-			if e.LocalAddr.Port == 0 {
-                continue
-            }
-
-            if e.RemoteAddr.Port == 0 {
+            if e.LocalAddr.Port == 0 || e.RemoteAddr.Port == 0 {
                 continue
             }
 
@@ -179,6 +187,7 @@ func GetSocks(ihosts []string, ids map[string]bool, options config.Options, inco
                 Relation: config.Relation{
                     Mode:        mode,
                     //Port:        e.RemoteAddr.Port,
+                    //Type:        "",
                 },
                 Options: config.Options{
                     Status:      options.Status,
@@ -189,31 +198,36 @@ func GetSocks(ihosts []string, ids map[string]bool, options config.Options, inco
                 },
             }
 
-			if e.Process != nil {
-				rec.Options.Service = e.Process.Name
-			}
+            if e.Process != nil {
+                rec.Options.Service = e.Process.Name
+            }
 
-			if addr, err := lookupAddr(e.LocalAddr.IP.String()); err == nil {
+            if addr, err := lookupAddr(e.LocalAddr.IP.String()); err == nil {
                 rec.LocalAddr.Name = addr
-			}
-            
-			if addr, err := lookupAddr(e.RemoteAddr.IP.String()); err == nil {
-                rec.RemoteAddr.Name = addr
-			}
 
-			if ignoreHosts(rec.RemoteAddr.Name, e.RemoteAddr.Port, ihosts){
+                _, ok := ports[e.LocalAddr.Port]
+                if addr == hostname && ok {
+                    rec.Relation.Type = "incoming"
+                }
+            }
+            
+            if addr, err := lookupAddr(e.RemoteAddr.IP.String()); err == nil {
+                rec.RemoteAddr.Name = addr
+            }
+
+            if ignoreHosts(rec.RemoteAddr.Name, e.RemoteAddr.Port, ihosts){
                 continue
             }
 
-			if debug == true {
-                log.Printf("[debug] netstat list %v %v (%v) - %v (%v)", mode, e.LocalAddr.String(), rec.LocalAddr.Name, e.RemoteAddr.String(), rec.RemoteAddr.Name)
+            if debug == true {
+                log.Printf("[debug] netstat list %v %v:%v - %v:%v (%v)", mode, rec.LocalAddr.Name, e.LocalAddr.Port, rec.RemoteAddr.Name, e.RemoteAddr.Port, rec.Relation.Type)
             }
 
             //rec.Id = config.GetIdRec(&rec)
-			nd.Data = append(nd.Data, rec)
-		}
+            nd.Data = append(nd.Data, rec)
+        }
 
-	}
+    }
 
-	return nd, nil
+    return nd, nil
 }
