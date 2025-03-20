@@ -332,7 +332,6 @@ func (api *Api) ApiNetstat(w http.ResponseWriter, r *http.Request) {
         }
         */
 
-        wr := true
         if len(api.Conf.Collector.URLs) > 0 {
             for _, rec := range netstat.Data {
                 select {
@@ -340,13 +339,8 @@ func (api *Api) ApiNetstat(w http.ResponseWriter, r *http.Request) {
                     //log.Printf("[debug] len chan - %v", len(api.Collect))
                 default: 
                     //log.Printf("[debug] chan not ready")
-                    wr = false
                 }
             }
-        }
-
-        if !wr {
-            log.Printf("[error] the channel is not ready for recording - %s", r.URL.Path)
         }
         
         w.WriteHeader(204)
