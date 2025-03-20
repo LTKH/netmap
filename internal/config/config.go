@@ -142,6 +142,14 @@ func New(filename *string) (*Config, error) {
     if cfg.Collector == nil {
         cfg.Collector = &Collector{}
     }
+
+    if cfg.Notifier.Path == "" {
+        cfg.Notifier.Path = "/api/v1/alerts"
+    }
+
+    if cfg.Collector.Path == "" {
+        cfg.Collector.Path = "/api/v1/records"
+    }
     
     return cfg, nil
 }

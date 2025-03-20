@@ -583,10 +583,7 @@ func main() {
 
 		getConnections(cfg, hname, *debug)
 
-		// Set default URLs
-		if len(cfg.Netstat.URLs) == 0 {
-			cfg.Netstat.URLs = cfg.Global.URLs
-		}
+		// Check URLs
 		if len(cfg.Netstat.URLs) == 0 {
 			return
 		}

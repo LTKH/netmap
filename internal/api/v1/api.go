@@ -162,9 +162,6 @@ func (api *Api) SendToCollect() {
             config := client.HttpConfig{
                 URLs: api.Conf.Collector.URLs,
             }
-            if api.Conf.Collector.Path == "" {
-                api.Conf.Collector.Path = "/api/v1/records"
-            }
             
             if err := httpClient.WriteRecords(config, api.Conf.Collector.Path, body); err != nil {
                 log.Printf("[error] %v (%v)", err, len(netstat.Data))
@@ -349,7 +346,7 @@ func (api *Api) ApiNetstat(w http.ResponseWriter, r *http.Request) {
         }
 
         if !wr {
-            //log.Printf("[error] the channel is not ready for recording - %s", r.URL.Path)
+            log.Printf("[error] the channel is not ready for recording - %s", r.URL.Path)
         }
         
         w.WriteHeader(204)
@@ -925,9 +922,7 @@ func (api *Api) ApiWebhook(w http.ResponseWriter, r *http.Request) {
                 config := client.HttpConfig{
                     URLs: []string{url},
                 }
-                if api.Conf.Notifier.Path == "" {
-                    api.Conf.Notifier.Path = "/api/v1/alerts"
-                }
+                
                 go httpClient.WriteRecords(config, api.Conf.Notifier.Path, body)
             }
         }

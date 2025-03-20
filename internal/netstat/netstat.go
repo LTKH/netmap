@@ -149,6 +149,10 @@ func GetSocks(ihosts []string, ids map[string]bool, options config.Options, inco
                 continue
             }
 
+            if e.RemoteAddr.IP.String() == "127.0.0.1" {
+                continue
+            }
+
             if e.LocalAddr.IP.String() == e.RemoteAddr.IP.String() {
                 continue
             }
@@ -205,7 +209,7 @@ func GetSocks(ihosts []string, ids map[string]bool, options config.Options, inco
                 log.Printf("[debug] netstat list %v %v (%v) - %v (%v)", mode, e.LocalAddr.String(), rec.LocalAddr.Name, e.RemoteAddr.String(), rec.RemoteAddr.Name)
             }
 
-            rec.Id = config.GetIdRec(&rec)
+            //rec.Id = config.GetIdRec(&rec)
 			nd.Data = append(nd.Data, rec)
 		}
 
