@@ -145,7 +145,13 @@ func (db *Client) LoadTableRecords() error {
         err = json.Unmarshal(options, &rec.Options)
         if err != nil { continue }
 
-        db.records.items[rec.Id] = rec 
+        if _, ok := db.records.index[rec.LocalAddr.Name]; !ok {
+            db.records.index[rec.LocalAddr.Name] = make(map[string]bool)
+        }
+
+        db.records.index[rec.LocalAddr.Name][rec.Id] = true
+        //log.Printf("rec.LocalAddr.Name - %v", rec.LocalAddr.Name)
+        db.records.items[rec.Id] = rec
     }
 
     return nil

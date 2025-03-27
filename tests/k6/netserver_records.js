@@ -13,39 +13,42 @@ export const options = {
   ],
 };
 
-var host = 0;
+//var host = 0;
 
 export default function () {
-  host = (host >= 10000) ? 0 : host +1;
-  var ip1 = Math.round(host/1000);
-  var ip2 = Math.round(host/100);
-  //var host = Math.floor(Math.random() * 100);
+  //host = (host >= 10000) ? 0 : host +1;
+  //var ip1 = Math.round(host/1000);
+  //var ip2 = Math.round(host/100);
+  var ip1 = Math.floor(Math.random() * 100);
+  var ip2 = Math.floor(Math.random() * 100);
   //let port = Math.floor(Math.random() * 1000);
+
+  console.log("test read", `${ip1}.${ip2}`);
 
   group('01. Write records', () => {
     const data = { "data": [
         { 
-          "localAddr": { "ip": `192.168.${ip1}.${ip2}`, "name": `host-${host}` }, 
+          "localAddr": { "ip": `192.168.${ip1}.${ip2}`, "name": `host-${ip1}.${ip2}` }, 
           "remoteAddr": { "ip": "192.168.0.1", "name": "remotehost" }, 
           "relation": { "mode": "udp", "port": 5256}, 
           "options": {} 
         },{ 
-          "localAddr": { "ip": `192.168.${ip1}.${ip2}`, "name": `host-${host}` }, 
+          "localAddr": { "ip": `192.168.${ip1}.${ip2}`, "name": `host-${ip1}.${ip2}` }, 
           "remoteAddr": { "ip": "192.168.0.1", "name": "remotehost" }, 
           "relation": { "mode": "udp", "port": 5257}, 
           "options": {} 
         },{ 
-          "localAddr": { "ip": `192.168.${ip1}.${ip2}`, "name": `host-${host}` }, 
+          "localAddr": { "ip": `192.168.${ip1}.${ip2}`, "name": `host-${ip1}.${ip2}` }, 
           "remoteAddr": { "ip": "192.168.0.1", "name": "remotehost" }, 
           "relation": { "mode": "udp", "port": 5258}, 
           "options": {} 
         },{ 
-          "localAddr": { "ip": `192.168.${ip1}.${ip2}`, "name": `host-${host}` }, 
+          "localAddr": { "ip": `192.168.${ip1}.${ip2}`, "name": `host-${ip1}.${ip2}` }, 
           "remoteAddr": { "ip": "192.168.0.1", "name": "remotehost" }, 
           "relation": { "mode": "udp", "port": 5259}, 
           "options": {} 
         },{ 
-          "localAddr": { "ip": `192.168.${ip1}.${ip2}`, "name": `host-${host}` }, 
+          "localAddr": { "ip": `192.168.${ip1}.${ip2}`, "name": `host-${ip1}.${ip2}` }, 
           "remoteAddr": { "ip": "192.168.0.1", "name": "remotehost" }, 
           "relation": { "mode": "udp", "port": 5260}, 
           "options": {} 
@@ -69,7 +72,7 @@ export default function () {
 
     group('03. Read records', () => {
       //console.log("test read host-", host);
-      let res = http.get(`http://127.0.0.1:8086/api/v1/netmap/records?src_name=host-${host}`);
+      let res = http.get(`http://127.0.0.1:8084/api/v1/netmap/records?src_name=host-${host}`);
 
       check(res, { 'status was 200': (r) => r.status == 200 });
       check(res.json(), { 'retrieved alerts list': (r) => r.data.length >= 5 });
