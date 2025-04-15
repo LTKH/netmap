@@ -6,7 +6,7 @@ FROM ${GOLANG_IMAGE} AS builder
 COPY . /src/
 WORKDIR /src/
 
-RUN go build -o /bin/netserver cmd/netserver/netserver.go
+RUN CGO_ENABLED=1 go build -o /bin/netserver cmd/netserver/netserver.go
 
 FROM ${ALPINE_IMAGE}
 
@@ -24,8 +24,6 @@ RUN mkdir /data && chmod 755 /data && \
 
 COPY --from=builder /bin/netserver /bin/netserver
 COPY config/config.yml /etc/netserver.yml
-
-RUN chown $USER_NAME:$GROUP_NAME /bin/netserver
 
 USER $USER_NAME
 
