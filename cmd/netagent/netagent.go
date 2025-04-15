@@ -305,7 +305,7 @@ func getConnections(cfg Config, hname string, debug bool) {
         }
     }
 
-    count := cacheRecords.DelExpiredItems(timestamp)
+    count := cacheRecords.DelExpiredItems(timestamp - 300)
     if debug {
         log.Printf("[debug] removed old records from cache (%d)", count)
     }
@@ -510,20 +510,15 @@ func main() {
                         trace = 0
                     }
 
-                    if nr.Relation.Response != response {
-                        nr.Relation.Response = response
-                    }
-
                     if nr.Options.Service == "" {
                         nr.Options.Service = "unknown"
                     }
 
-                    if nr.Relation.Result != result || nr.Relation.Trace != trace || nr.Options.AccountID != cfg.Global.AccountID {
-                        nr.Options.AccountID = cfg.Global.AccountID
-                        nr.Relation.Result = result
-                        nr.Relation.Trace = trace
-                        nrr.Data = append(nrr.Data, nr)
-                    }
+                    nr.Options.AccountID = cfg.Global.AccountID
+                    nr.Relation.Result = result
+                    nr.Relation.Response = response
+                    nr.Relation.Trace = trace
+                    nrr.Data = append(nrr.Data, nr)
 
                     if *plugin == "telegraf" || *plugin == "windows" {
                         fmt.Printf(
@@ -580,9 +575,6 @@ func main() {
 
     // Netstat run cmd
     go func() {
-
-        getConnections(cfg, hname, *debug)
-
         // Check URLs
         if len(cfg.Netstat.URLs) == 0 {
             return
@@ -635,13 +627,6 @@ func main() {
 
             ihosts := cfg.Netstat.IgnoreHosts
             exists := map[string]bool{}
-
-
-            /*
-            for _, ex := range exp.Data {
-                ihosts = append(ihosts, ex.IgnoreMask)
-            }
-            */
 
             for _, nr := range cacheRecords.Items() {
                 exists[nr.Id] = true

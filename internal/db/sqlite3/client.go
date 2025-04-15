@@ -21,7 +21,7 @@ import (
 )
 
 var (
-    queue_limit = 100000
+    queue_limit = 1000000
 )
 
 type Client struct {
