@@ -1,4 +1,4 @@
-ARG GOLANG_IMAGE="golang:1.18.3-alpine"
+ARG GOLANG_IMAGE="golang:1.21"
 ARG ALPINE_IMAGE="alpine:3.21.3"
 
 FROM ${GOLANG_IMAGE}
