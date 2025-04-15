@@ -1,5 +1,5 @@
 ARG GOLANG_IMAGE="golang:1.21"
-ARG ALPINE_IMAGE="alpine:3.21.3"
+ARG ALPINE_IMAGE="alpine"
 
 FROM ${GOLANG_IMAGE} AS builder
 
@@ -24,6 +24,8 @@ RUN mkdir /data && chmod 755 /data && \
 
 COPY --from=builder /bin/netserver /bin/netserver
 COPY config/config.yml /etc/netserver.yml
+
+RUN chown $USER_NAME:$GROUP_NAME /bin/netserver
 
 USER $USER_NAME
 
