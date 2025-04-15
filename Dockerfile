@@ -1,4 +1,4 @@
-ARG GOLANG_IMAGE="golang:1.21"
+ARG GOLANG_IMAGE="golang:alpine"
 ARG ALPINE_IMAGE="alpine"
 
 FROM ${GOLANG_IMAGE} AS builder
@@ -6,6 +6,7 @@ FROM ${GOLANG_IMAGE} AS builder
 COPY . /src/
 WORKDIR /src/
 
+RUN apk add --no-cache --update go gcc g++
 RUN CGO_ENABLED=1 go build -o /bin/netserver cmd/netserver/netserver.go
 
 FROM ${ALPINE_IMAGE}
