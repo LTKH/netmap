@@ -33,10 +33,15 @@ var (
     Version      = "unknown"
 )
 
-type Records struct {
+//type Records struct {
+//    sync.RWMutex
+//    items map[string]config.SockTable
+//    limit int
+//}
+
+type Blocker struct {
     sync.RWMutex
-    items map[string]config.SockTable
-    limit int
+    items map[string]bool
 }
 
 type Config struct {
@@ -92,6 +97,34 @@ type Annotations struct {
 
 type ExceptionData struct {
     Data []config.Exception `json:"data"`
+}
+
+func (t *Blocker) Action(act, key string) bool {
+    if act == "get" {
+        t.RLock()
+        defer t.RUnlock()
+
+        if _, found := t.items[key]; found {
+            return true
+        }
+    }
+    if act == "set" {
+        t.Lock()
+        defer t.Unlock()
+
+        t.items[key] = true
+        return true
+    }
+    if act == "delete" {
+        t.Lock()
+        defer t.Unlock()
+
+        if _, found := t.items[key]; found {
+            delete(t.items, key)
+            return true
+        }
+    }
+    return false
 }
 
 func randURLs(urls []string) []string {
@@ -423,6 +456,10 @@ func main() {
             ContentEncoding: cfg.Global.ContentEncoding,
         }
 
+        blck := Blocker{
+            items: make(map[string]bool),
+        }
+
         for {
             getConnections(cfg, hname, *debug)
 
@@ -445,6 +482,20 @@ func main() {
             for _, nr := range items {
 
                 if nr.Options.Status == "disabled" {
+                    continue
+                }
+
+                // New action
+                if nr.Relation.Port == 0 {
+                    if blck.Action("get", nr.Id) {
+                        continue
+                    }
+                    // Update connection status
+                    blck.Action("set", nr.Id)
+
+                    go func() {
+                        //runCommand("ping google.com", "60")
+                    }()
                     continue
                 }
 

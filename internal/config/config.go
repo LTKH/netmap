@@ -57,6 +57,7 @@ type Relation struct {
     Result         int                    `json:"result"`
     Response       float64                `json:"response"`
     Trace          int                    `json:"trace"`
+    Running        bool                   `json:"-"`
 }
 
 type Options struct {
