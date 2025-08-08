@@ -5,21 +5,22 @@ import (
     "fmt"
     "sync"
     "strconv"
-    "net"
-    "net/rpc"
     "net/http"
     "time"
-    //"errors"
     "compress/gzip"
     "io"
     "bytes"
     "regexp"
+    //"context"
     "io/ioutil"
     "encoding/json"
     "github.com/prometheus/client_golang/prometheus"
+    "github.com/ltkh/netmap/internal/db"
     "github.com/ltkh/netmap/internal/config"
     "github.com/ltkh/netmap/internal/client"
-    "github.com/ltkh/netmap/internal/db"
+
+    //"google.golang.org/grpc"
+    pb "github.com/ltkh/netmap/internal/grpc"
 )
 
 var (
@@ -42,15 +43,13 @@ var (
         },
         []string{"src_name","dst_name","mode","port"},
     )
-
-    connections = make(map[string]chan int)
 )
 
 type Api struct {
     Conf         *config.Config            `json:"conf"`
-    Peers        *Peers                    `json:"peers"`
     DB           *db.DbClient              `json:"db"`
     Collect      chan config.SockTable     `json:"-"`
+    Server       *Server                   `json:"-"`
 }
 
 type Resp struct {
@@ -68,16 +67,6 @@ type Records struct {
 type Exceptions struct {
     sync.RWMutex
     items        map[string]config.Exception
-}
-
-type Peers struct {
-    sync.RWMutex
-    items        map[string]*rpc.Client
-}
-
-type Errors struct {
-    sync.RWMutex
-    items        map[string]error
 }
 
 func readUserIP(r *http.Request) string {
@@ -126,19 +115,30 @@ func MonRegister(){
     prometheus.MustRegister(responseTime)
 }
 
-func NewAPI(conf *config.Config, peers []string, db db.DbClient) (*Api, error) {
-    api := &Api{
-        Conf: conf,
-        Peers: &Peers{items: make(map[string]*rpc.Client)},
-        DB: &db,
-        Collect: make(chan config.SockTable, 1000000),
+func NewAPI(debug bool, conf *config.Config, peers []string, db db.DbClient, srv *Server) (*Api, error) {
+    if err := db.CreateTables(); err != nil {
+        return &Api{}, err
     }
 
-    for _, id := range peers {
-        connections[id] = make(chan int, 1)
+    if err := db.LoadTables(); err != nil {
+        return &Api{}, err
+    }
+
+    api := &Api{
+        Conf: conf,
+        DB: &db,
+        Collect: make(chan config.SockTable, 1000000),
+        Server: srv,
+    }
+
+    rpc := &Rpc{
+        Debug: debug,
+        Peers: peers,
+        DB: &db,
     }
 
     go api.SendToCollect()
+    go rpc.RunGrpcClient()
 
     return api, nil
 }
@@ -169,33 +169,6 @@ func (api *Api) SendToCollect() {
         }
 
         time.Sleep(15 * time.Second)
-    }
-}
-
-func (api *Api) ApiPeers() {
-    for id, _ := range connections {
-
-        conn, err := net.DialTimeout("tcp", id, 2 * time.Second)
-        if err == nil {
-            if _, ok := api.Peers.items[id]; !ok {
-                api.Peers.Lock()
-                api.Peers.items[id] = rpc.NewClient(conn)
-                api.Peers.Unlock()
-                log.Printf("[info] successful connection: %v", id)
-                continue
-            }
-            if len(connections[id]) > 0 {
-                <- connections[id]
-                api.Peers.Lock()
-                api.Peers.items[id] = rpc.NewClient(conn)
-                api.Peers.Unlock()
-                log.Printf("[info] connection restored: %v", id)
-                continue
-            }
-        } else {
-            log.Printf("[error] %v", err)
-        }
-        
     }
 }
 
@@ -244,25 +217,25 @@ func (api *Api) ApiStatus(w http.ResponseWriter, r *http.Request) {
             return
         }
 
-        api.Peers.RLock()
-        defer api.Peers.RUnlock()
-        for id, client := range api.Peers.items {
+        for _, rc := range netstat.Data {
+            if rc.Id == "" {
+                rc.Id = config.GetIdRec(&rc)
+            }
 
-            go func(id string, cli *rpc.Client) {
-    
-                err := client.Call("RPC.SetStatus", netstat.Data, nil)
-                if err != nil {
-                    log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
-                    if len(connections[id]) < 1 {
-                        connections[id] <- 1
-                    }
-                    return
-                }
-    
-            }(id, client)
-            
+            if rc.Timestamp == 0 {
+                rc.Timestamp = time.Now().UTC().Unix()
+            }
+
+            if err := db.DbClient.SaveStatus(*api.DB, rc); err != nil {
+                w.WriteHeader(500)
+                w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
+                return
+            }
+
+            event := convertRec(ServerId, "setStatus", rc)
+            api.Server.Broadcast(event)
         }
-        
+
         w.WriteHeader(204)
         return
     }
@@ -312,23 +285,10 @@ func (api *Api) ApiNetstat(w http.ResponseWriter, r *http.Request) {
         }
 
         /*
-        api.Peers.RLock()
-        defer api.Peers.RUnlock()
-        for id, client := range api.Peers.items {
-
-            go func(id string, client *rpc.Client) {
-    
-                err := client.Call("RPC.SetNetstat", netstat.Data, nil)
-                if err != nil {
-                    log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
-                    if len(connections[id]) < 1 {
-                        connections[id] <- 1
-                    }
-                    return
-                }
-    
-            }(id, client)
-            
+        if err := db.DbClient.SaveNetstat(*api.DB, netstat.Data); err != nil {
+            w.WriteHeader(500)
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
+            return
         }
         */
 
@@ -338,7 +298,7 @@ func (api *Api) ApiNetstat(w http.ResponseWriter, r *http.Request) {
                 case api.Collect <- rec:
                     //log.Printf("[debug] len chan - %v", len(api.Collect))
                 default: 
-                    //log.Printf("[debug] chan not ready")
+                    // Канал переполнен, можно удалить или игнорировать
                 }
             }
         }
@@ -391,23 +351,23 @@ func (api *Api) ApiTracert(w http.ResponseWriter, r *http.Request) {
             return
         }
 
-        api.Peers.RLock()
-        defer api.Peers.RUnlock()
-        for id, client := range api.Peers.items {
+        for _, rc := range netstat.Data {
+            if rc.Id == "" {
+                rc.Id = config.GetIdRec(&rc)
+            }
 
-            go func(id string, client *rpc.Client) {
-    
-                err := client.Call("RPC.SetTracert", netstat.Data, nil)
-                if err != nil {
-                    log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
-                    if len(connections[id]) < 1 {
-                        connections[id] <- 1
-                    }
-                    return
-                }
-    
-            }(id, client)
-            
+            if rc.Timestamp == 0 {
+                rc.Timestamp = time.Now().UTC().Unix()
+            }
+
+            if err := db.DbClient.SaveTracert(*api.DB, rc); err != nil {
+                w.WriteHeader(500)
+                w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
+                return
+            }
+
+            event := convertRec(ServerId, "setTracert", rc)
+            api.Server.Broadcast(event)
         }
         
         w.WriteHeader(204)
@@ -421,12 +381,7 @@ func (api *Api) ApiTracert(w http.ResponseWriter, r *http.Request) {
 func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
 
-    var wg sync.WaitGroup
-    var records []config.SockTable
-
     if r.Method == "GET" {
-
-        //rc := Records{items: make(map[string]config.SockTable)}
         var args config.RecArgs
 
         for k, v := range r.URL.Query() {
@@ -499,9 +454,9 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
             return
         }
 
-        var netstat config.NetstatData
+        var recData config.RecordsData
 
-        if err := json.Unmarshal(body, &netstat); err != nil {
+        if err := json.Unmarshal(body, &recData); err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
             w.WriteHeader(400)
             w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
@@ -510,66 +465,53 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
 
         rhost := readUserIP(r)
 
-        for _, nr := range netstat.Data {
-            if nr.LocalAddr.Name == "" {
+        for _, rc := range recData.Data {
+            if rc.Id == "" {
+                rc.Id = config.GetIdRec(&rc)
+            }
+            if rc.Timestamp == 0 {
+                rc.Timestamp = time.Now().UTC().Unix()
+            }
+            if rc.LocalAddr.Name == "" {
                 log.Printf("[error] parameter missing localAddr.name, sender - %s", rhost)
                 continue
             }
-            if nr.LocalAddr.IP == nil {
+            if rc.LocalAddr.IP == "" {
                 log.Printf("[error] parameter missing LocalAddr.IP, sender - %s", rhost)
                 continue
             }
-            if nr.RemoteAddr.Name == "" {
+            if rc.RemoteAddr.Name == "" {
                 log.Printf("[error] parameter missing RemoteAddr.Name, sender - %s", rhost)
                 continue
             }
-            if nr.RemoteAddr.IP == nil {
+            if rc.RemoteAddr.IP == "" {
                 log.Printf("[error] parameter missing RemoteAddr.IP, sender - %s", rhost)
                 continue
             }
-            if nr.Relation.Port == 0 {
+            if rc.Relation.Port == 0 {
                 log.Printf("[error] parameter missing Relation.Port, sender - %s", rhost)
                 continue
             }
-            if nr.Relation.Mode == "" {
+            if rc.Relation.Mode == "" {
                 log.Printf("[error] parameter missing Relation.Mode, sender - %s", rhost)
                 continue
             }
-            //nr.Id = config.GetIdRec(&nr)
-            records = append(records, nr)
+
+            if err := db.DbClient.SaveRecord(*api.DB, rc); err != nil {
+                w.WriteHeader(500)
+                w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
+                return
+            }
+
+            event := convertRec(ServerId, "setRecord", rc)
+            api.Server.Broadcast(event)
         }
-
-        api.Peers.RLock()
-        defer api.Peers.RUnlock()
-        for id, client := range api.Peers.items {
-
-            wg.Add(1)
-
-            go func(id string, client *rpc.Client) {
-                defer wg.Done()
-
-                err := client.Call("RPC.SetRecords", records, nil)
-                if err != nil {
-                    log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
-                    if len(connections[id]) < 1 {
-                        connections[id] <- 1
-                    }
-                    return
-                }
-
-            }(id, client)
-            
-        }
-
-        wg.Wait()
         
         w.WriteHeader(204)
         return
     }
 
     if r.Method == "DELETE" {
-
-        er := Errors{items: make(map[string]error)}
         var reader io.ReadCloser
         var err error
 
@@ -606,40 +548,19 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
             return
         }
 
-        api.Peers.RLock()
-        defer api.Peers.RUnlock()
-        for id, client := range api.Peers.items {
+        for _, id := range keys {
+            if err := db.DbClient.DelRecord(*api.DB, id); err != nil {
+                w.WriteHeader(500)
+                w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
+                return
+            }
 
-            wg.Add(1)
-
-            go func(id string, client *rpc.Client, er *Errors) {
-                defer wg.Done()
-    
-                err := client.Call("RPC.DelRecords", keys, nil)
-                if err != nil {
-                    er.Lock()
-                    er.items[id] = err
-                    er.Unlock()
-
-                    log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
-                    if len(connections[id]) < 1 {
-                        connections[id] <- 1
-                    }
-                }
-    
-            }(id, client, &er)
-            
-        }
-
-        wg.Wait()
-
-        er.RLock()
-        defer er.RUnlock()
-
-        for _, err := range er.items {
-            w.WriteHeader(500)
-            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
-            return
+            event := &pb.Event{
+                ServerId:        ServerId,
+                Event:           "delRecord",
+                Id:              id,
+            }
+            api.Server.Broadcast(event)
         }
 
         w.WriteHeader(200)
@@ -654,12 +575,7 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
 func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
 
-    var wg sync.WaitGroup
-    var exceptions []interface{}
-
     if r.Method == "GET" {
-
-        ex := Exceptions{items: make(map[string]config.Exception)}
         var args config.ExpArgs
 
         for k, v := range r.URL.Query() {
@@ -673,46 +589,14 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
             }
         }
 
-        api.Peers.RLock()
-        defer api.Peers.RUnlock()
-        for id, client := range api.Peers.items {
-
-            wg.Add(1)
-
-            go func(id string, client *rpc.Client) {
-                defer wg.Done()
-    
-                var items []config.Exception
-                err := client.Call("RPC.GetExceptions", args, &items)
-                if err != nil {
-                    log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
-                    if len(connections[id]) < 1 {
-                        connections[id] <- 1
-                    }
-                    return
-                }
-    
-                ex.Lock()
-                defer ex.Unlock()
-    
-                for _, item := range items{
-                    ex.items[item.Id] = item
-                }
-    
-            }(id, client)
-            
+        items, err := db.DbClient.LoadExceptions(*api.DB, args)
+        if err != nil {
+            w.WriteHeader(500)
+            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
+            return
         }
 
-        wg.Wait()
-
-        ex.RLock()
-        defer ex.RUnlock()
-
-        for _, item := range ex.items{
-            exceptions = append(exceptions, item)
-        }
-
-        data := encodeResp(&Resp{Status:"success", Data:exceptions})
+        data := encodeResp(&Resp{Status:"success", Data:items})
         buf, ok, err := compressData(data, r.Header.Get("Accept-Encoding"))
         if err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
@@ -769,36 +653,37 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
         for _, ex := range expdata.Data {
             if ex.Id == "" {
                 ex.Id = config.GetIdExp(&ex)
-            } 
-            exceptions = append(exceptions, ex)
+            }
+
+            if ex.Timestamp == 0 {
+                ex.Timestamp = time.Now().UTC().Unix()
+            }
+
+            rc := config.SockTable{
+                Id:              ex.Id,
+                Timestamp:       ex.Timestamp,
+                Options: config.Options{
+                    AccountID:   ex.AccountID,
+                    HostMask:    ex.HostMask,
+                    IgnoreMask:  ex.IgnoreMask,
+                },
+            }
+
+            if err := db.DbClient.SaveException(*api.DB, rc); err != nil {
+                w.WriteHeader(500)
+                w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
+                return
+            }
+
+            event := convertRec(ServerId, "setException", rc)
+            api.Server.Broadcast(event)
         }
 
-        api.Peers.RLock()
-        defer api.Peers.RUnlock()
-        for id, client := range api.Peers.items {
-
-            go func(id string, client *rpc.Client) {
-    
-                err := client.Call("RPC.SetExceptions", exceptions, nil)
-                if err != nil {
-                    log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
-                    if len(connections[id]) < 1 {
-                        connections[id] <- 1
-                    }
-                    return
-                }
-    
-            }(id, client)
-            
-        }
-        
         w.WriteHeader(204)
         return
     }
 
     if r.Method == "DELETE" {
-
-        er := Errors{items: make(map[string]error)}
         var reader io.ReadCloser
         var err error
 
@@ -835,40 +720,19 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
             return
         }
 
-        api.Peers.RLock()
-        defer api.Peers.RUnlock()
-        for id, client := range api.Peers.items {
+        for _, id := range keys {
+            if err := db.DbClient.DelException(*api.DB, id); err != nil {
+                w.WriteHeader(500)
+                w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
+                return
+            }
 
-            wg.Add(1)
-
-            go func(id string, client *rpc.Client, er *Errors) {
-                defer wg.Done()
-    
-                err := client.Call("RPC.DelExceptions", keys, nil)
-                if err != nil {
-                    er.Lock()
-                    er.items[id] = err
-                    er.Unlock()
-
-                    log.Printf("[error] %v - %s%s", err, id, r.URL.Path)
-                    if len(connections[id]) < 1 {
-                        connections[id] <- 1
-                    }
-                }
-    
-            }(id, client, &er)
-            
-        }
-        
-        wg.Wait()
-
-        er.RLock()
-        defer er.RUnlock()
-
-        for _, err := range er.items {
-            w.WriteHeader(500)
-            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
-            return
+            event := &pb.Event{
+                ServerId:        ServerId,
+                Event:           "delException",
+                Id:              id,
+            }
+            api.Server.Broadcast(event)
         }
 
         w.WriteHeader(200)
@@ -916,7 +780,6 @@ func (api *Api) ApiWebhook(w http.ResponseWriter, r *http.Request) {
                 config := client.HttpConfig{
                     URLs: []string{url},
                 }
-                
                 go httpClient.WriteRecords(config, api.Conf.Notifier.Path, body)
             }
         }

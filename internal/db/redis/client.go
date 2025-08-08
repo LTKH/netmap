@@ -3,7 +3,7 @@ package redis
 import (
     //"fmt"
     "log"
-    "time"
+    //"time"
 	//"context"
     //"regexp"
     //"strings"
@@ -63,15 +63,15 @@ func (db *Client) LoadTables() error {
     return nil
 }
 
-func (db *Client) SaveStatus(records []config.SockTable) error {
+func (db *Client) SaveStatus(rec config.SockTable) error {
     return nil
 }
 
-func (db *Client) SaveNetstat(records []config.SockTable) error {
+func (db *Client) SaveNetstat(rec config.SockTable) error {
     return nil
 }
 
-func (db *Client) SaveTracert(records []config.SockTable) error {
+func (db *Client) SaveTracert(rec config.SockTable) error {
     return nil
 }
 
@@ -80,34 +80,29 @@ func (db *Client) LoadRecords(args config.RecArgs) ([]config.SockTable, error) {
     return result, nil
 }
 
-func (db *Client) SaveRecords(records []config.SockTable) error {
-
-	for _, rec := range records {
-		rec.Timestamp = time.Now().UTC().Unix()
-
-		_, err := db.rh.JSONSet("record:"+rec.Id, ".", rec)
-        if err != nil {
-			log.Printf("Failed to JSONSet: %v", err)
-			continue
-		}
+func (db *Client) SaveRecord(rec config.SockTable) error {
+    _, err := db.rh.JSONSet("record:"+rec.Id, ".", rec)
+    if err != nil {
+        log.Printf("failed to JSONSet: %v", err)
+        return nil
     }
 
     return nil
 }
 
-func (db *Client) DelRecords(ids []string) error {
+func (db *Client) DelRecord(id string) error {
     return nil
 }
 
-func (db *Client) LoadExceptions(args config.ExpArgs) ([]config.Exception, error) {
-    result := []config.Exception{}
+func (db *Client) LoadExceptions(args config.ExpArgs) ([]interface{}, error) {
+    result := []interface{}{}
     return result, nil
 }
 
-func (db *Client) SaveExceptions(records []config.Exception) error {
+func (db *Client) SaveException(rec config.SockTable) error {
     return nil
 }
 
-func (db *Client) DelExceptions(ids []string) error {
+func (db *Client) DelException(id string) error {
     return nil
 }

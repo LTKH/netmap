@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package events;
+
+// Путь, который будет использоваться для импорта сгенерированного кода
+option go_package = ".";
+
+service EventService {
+  // Запрос всех событий за период времени
+  rpc ListObjects(ListObjectsRequest) returns (stream Event);
+  // Запрос для подписки (может быть пустым)
+  rpc Subscribe(SubscribeRequest) returns (stream Event);
+}
+
+// Сообщение события
+message Event {
+  string serverId = 1;
+  string event = 2;
+  string id = 3;
+  int64 timestamp = 4;
+  SockAddr localAddr = 5;
+  SockAddr remoteAddr = 6;
+  Relation relation = 7;
+  Options options = 8;
+}
+
+// Вложенное сообщение
+message SockAddr {
+  string ip = 1;
+  string name = 2;
+  uint32 port = 3;
+}
+
+// Вложенное сообщение
+message Relation {
+  string mode = 1;
+  string type = 2;
+  uint32 port = 3;
+  string command = 4;
+  int32 result = 5;
+  float response = 6;
+  int32 trace = 7;
+}
+
+// Вложенное сообщение
+message Options {
+  string service = 1;
+  string status = 2;
+  string command = 3;
+  float timeout = 4;
+  float maxRespTime = 5;
+  uint32 accountID = 6;
+  string hostMask = 7;
+  string ignoreMask = 8;
+}
+
+message SubscribeRequest {
+  // Можно добавить фильтры или параметры подписки
+}
+
+message ListObjectsRequest {
+  int64 timestamp = 1;
+}
+

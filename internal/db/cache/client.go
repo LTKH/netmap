@@ -5,7 +5,7 @@ import (
     "sync"
     //"net"
     //"io"
-    "time"
+    //"time"
     "errors"
     //"crypto/sha1"
     //"encoding/hex"
@@ -46,51 +46,31 @@ func (db *Client) LoadTables() error {
     return nil
 }
 
-func (db *Client) SaveStatus(records []config.SockTable) error {
+func (db *Client) SaveStatus(rec config.SockTable) error {
     db.Lock()
     defer db.Unlock()
 
-    for _, rec := range records {
-
-        item, found := db.items[rec.Id]
-        if !found {
-            continue
-        }
-
-        item.Relation = rec.Relation
-        item.Timestamp = time.Now().UTC().Unix()
-
-        db.items[rec.Id]= item
-
+    item, found := db.items[rec.Id]
+    if !found {
+        return nil
     }
+
+    if item.Timestamp > rec.Timestamp {
+        return nil
+    }
+
+    item.Relation = rec.Relation
+
+    db.items[rec.Id] = item
 
     return nil
 }
 
-func (db *Client) SaveNetstat(records []config.SockTable) error {
-    db.Lock()
-    defer db.Unlock()
-
-    for _, rec := range records {
-
-        _, found := db.items[rec.Id]
-        if found {
-            continue
-        }
-
-        if _, ok := db.index[rec.LocalAddr.Name]; !ok {
-            db.index[rec.LocalAddr.Name] = make(map[string]bool)
-        }
-
-        rec.Timestamp = time.Now().UTC().Unix()
-        db.index[rec.LocalAddr.Name][rec.Id] = true
-        db.items[rec.Id] = rec
-    }
-
+func (db *Client) SaveNetstat(rec config.SockTable) error {
     return nil
 }
 
-func (db *Client) SaveTracert(records []config.SockTable) error {
+func (db *Client) SaveTracert(rec config.SockTable) error {
     return nil
 }
 
@@ -118,64 +98,61 @@ func (db *Client) LoadRecords(args config.RecArgs) ([]config.SockTable, error) {
     return items, nil
 }
 
-func (db *Client) SaveRecords(records []config.SockTable) error {
+func (db *Client) SaveRecord(rec config.SockTable) error {
     db.Lock()
     defer db.Unlock()
 
-    for _, rec := range records {
-
-        _, found := db.items[rec.Id]
-        if !found && len(db.items) >= db.limit {
-            return errors.New("cache limit exceeded")
-        }
-
-        if _, ok := db.index[rec.LocalAddr.Name]; !ok {
-            db.index[rec.LocalAddr.Name] = make(map[string]bool)
-        }
-
-        rec.Timestamp = time.Now().UTC().Unix()
-        db.index[rec.LocalAddr.Name][rec.Id] = true
-        db.items[rec.Id] = rec
-        
+    item, found := db.items[rec.Id]
+    if found && item.Timestamp > rec.Timestamp {
+        return nil
     }
+
+    if !found && len(db.items) >= db.limit {
+        return errors.New("cache limit exceeded")
+    }
+
+    if _, ok := db.index[rec.LocalAddr.Name]; !ok {
+        db.index[rec.LocalAddr.Name] = make(map[string]bool)
+    }
+
+    db.index[rec.LocalAddr.Name][rec.Id] = true
+    db.items[rec.Id] = rec
 
     return nil
 }
 
-func (db *Client) DelRecords(ids []string) error {
+func (db *Client) DelRecord(id string) error {
     db.Lock()
     defer db.Unlock()
 
-    for _, id := range ids {
-        rec, found := db.items[id]
-        if !found {
-            continue
-        }
-
-        if _, ok := db.index[rec.LocalAddr.Name]; ok {
-            if _, ok := db.index[rec.LocalAddr.Name][id]; ok {
-                delete(db.index[rec.LocalAddr.Name], id)
-            }
-            if len(db.index[rec.LocalAddr.Name]) == 0 {
-                delete(db.index, rec.LocalAddr.Name)
-            }
-        }
-    
-        delete(db.items, id)
+    rec, found := db.items[id]
+    if !found {
+        return nil
     }
+
+    if _, ok := db.index[rec.LocalAddr.Name]; ok {
+        if _, ok := db.index[rec.LocalAddr.Name][id]; ok {
+            delete(db.index[rec.LocalAddr.Name], id)
+        }
+        if len(db.index[rec.LocalAddr.Name]) == 0 {
+            delete(db.index, rec.LocalAddr.Name)
+        }
+    }
+
+    delete(db.items, id)
     
     return nil
 }
 
-func (db *Client) LoadExceptions(args config.ExpArgs) ([]config.Exception, error) {
-    result := []config.Exception{}
+func (db *Client) LoadExceptions(args config.ExpArgs) ([]interface{}, error) {
+    result := []interface{}{}
     return result, nil
 }
 
-func (db *Client) SaveExceptions(records []config.Exception) error {
+func (db *Client) SaveException(rec config.SockTable) error {
     return nil
 }
 
-func (db *Client) DelExceptions(ids []string) error {
+func (db *Client) DelException(id string) error {
     return nil
 }

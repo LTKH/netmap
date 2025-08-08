@@ -77,7 +77,7 @@ func New(conf *config.DB) (*Client, error) {
     go func(){
         for {
             rec := <- db.queue
-            db.SaveRecord(rec)
+            db.WriteRecord(rec)
         }
     }()
 
@@ -195,97 +195,64 @@ func (db *Client) LoadTables() error {
     return nil
 }
 
-func (db *Client) SaveStatus(records []config.SockTable) error {
+func (db *Client) SaveStatus(rec config.SockTable) error {
     db.records.Lock()
     defer db.records.Unlock()
 
-    for _, rec := range records {
-
-        rec.Id = config.GetIdRec(&rec)
-
-        item, found := db.records.items[rec.Id]
-        if !found {
-            continue
-        }
-
-        item.Timestamp = time.Now().UTC().Unix()
-        if item.Relation != rec.Relation {
-            item.Relation = rec.Relation
-            if len(db.queue) < queue_limit {
-                db.queue <- rec
-            } else {
-                log.Print("[error] DB write queue is full")
-            }
-        }
-        db.records.items[rec.Id] = item
+    item, found := db.records.items[rec.Id]
+    if !found {
+        return nil
     }
 
-    return nil
-}
+    if item.Timestamp > rec.Timestamp {
+        return nil
+    }
 
-func (db *Client) SaveNetstat(records []config.SockTable) error {
-    db.records.Lock()
-    defer db.records.Unlock()
-
-    for _, rec := range records {
-
-        rec.Id = config.GetIdRec(&rec)
-
-        _, found := db.records.items[rec.Id]
-        if !found && len(db.records.items) >= db.config.Limit {
-            return errors.New("cache limit exceeded")
-        }
-
-        if found {
-            continue
-        }
-
+    if item.Relation != rec.Relation {
+        item.Relation = rec.Relation
         if len(db.queue) < queue_limit {
-            db.queue <- rec
+            db.queue <- item
         } else {
             log.Print("[error] DB write queue is full")
         }
-
-        if _, ok := db.records.index[rec.LocalAddr.Name]; !ok {
-            db.records.index[rec.LocalAddr.Name] = make(map[string]bool)
-        }
-
-        rec.Timestamp = time.Now().UTC().Unix()
-        db.records.index[rec.LocalAddr.Name][rec.Id] = true
-        db.records.items[rec.Id] = rec
     }
+
+    db.records.items[rec.Id] = item
 
     return nil
 }
 
-func (db *Client) SaveTracert(records []config.SockTable) error {
+func (db *Client) SaveNetstat(rec config.SockTable) error {
+    return nil
+}
+
+func (db *Client) SaveTracert(rec config.SockTable) error {
     db.records.Lock()
-    var items []config.SockTable
+    defer db.records.Unlock()
 
-    for _, rec := range records {
-
-        rec.Id = config.GetIdRec(&rec)
-
-        item, found := db.records.items[rec.Id]
-        if !found {
-            continue
-        }
-
-        item.Relation.Trace = 2
-        
-        if rec.Options.Command != "" {
-            item.Options.Command = rec.Options.Command
-            items = append(items, item)
-            continue
-        }
-
-        item.Timestamp = time.Now().UTC().Unix()
-        db.records.items[rec.Id] = item
+    item, found := db.records.items[rec.Id]
+    if !found {
+        return nil
     }
 
-    db.records.Unlock()
+    if item.Timestamp > rec.Timestamp {
+        return nil
+    }
 
-    return db.SaveRecords(items)
+    item.Relation.Trace = 2
+
+    if rec.Options.Command != "" {
+        item.Options.Command = rec.Options.Command
+        if len(db.queue) < queue_limit {
+            db.queue <- item
+        } else {
+            log.Print("[error] DB write queue is full")
+        }
+    }
+    
+    db.records.items[rec.Id] = item
+
+    return nil
 }
 
 func (db *Client) LoadRecords(args config.RecArgs) ([]config.SockTable, error) {
@@ -312,7 +279,7 @@ func (db *Client) LoadRecords(args config.RecArgs) ([]config.SockTable, error) {
     return items, nil
 }
 
-func (db *Client) SaveRecord(rec config.SockTable) error {
+func (db *Client) WriteRecord(rec config.SockTable) error {
     sql := "replace into records (id,timestamp,localName,localIP,remoteName,remoteIP,relation,options) values (?,?,?,?,?,?,?,?)"
 
     relation, err := json.Marshal(rec.Relation)
@@ -344,73 +311,70 @@ func (db *Client) SaveRecord(rec config.SockTable) error {
     return nil
 }
 
-func (db *Client) SaveRecords(records []config.SockTable) error {
+func (db *Client) SaveRecord(rec config.SockTable) error {
     db.records.Lock()
     defer db.records.Unlock()
 
-    for _, rec := range records {
-
+    if rec.Id == "" {
         rec.Id = config.GetIdRec(&rec)
-
-        item, found := db.records.items[rec.Id]
-        if !found && len(db.records.items) >= db.config.Limit {
-            return errors.New("cache limit exceeded")
-        }
-
-        if !found || (item.Relation != rec.Relation || item.Options != rec.Options) {
-            if len(db.queue) < queue_limit {
-                db.queue <- rec
-            } else {
-                log.Print("[error] DB write queue is full")
-            }
-        }
-
-        if _, ok := db.records.index[rec.LocalAddr.Name]; !ok {
-            db.records.index[rec.LocalAddr.Name] = make(map[string]bool)
-        }
-
-        rec.Timestamp = time.Now().UTC().Unix()
-        db.records.index[rec.LocalAddr.Name][rec.Id] = true
-        db.records.items[rec.Id] = rec
-        
     }
+
+    item, found := db.records.items[rec.Id]
+    if found && item.Timestamp > rec.Timestamp {
+        return nil
+    }
+
+    if !found && len(db.records.items) >= db.config.Limit {
+        return errors.New("cache limit exceeded")
+    }
+
+    if !found || (item.Relation != rec.Relation || item.Options != rec.Options) {
+        if len(db.queue) < queue_limit {
+            db.queue <- rec
+        } else {
+            log.Print("[error] DB write queue is full")
+        }
+    }
+
+    if _, ok := db.records.index[rec.LocalAddr.Name]; !ok {
+        db.records.index[rec.LocalAddr.Name] = make(map[string]bool)
+    }
+
+    db.records.index[rec.LocalAddr.Name][rec.Id] = true
+    db.records.items[rec.Id] = rec
 
     return nil
 }
 
-func (db *Client) DelRecords(ids []string) error {
+func (db *Client) DelRecord(id string) error {
     db.records.Lock()
     defer db.records.Unlock()
 
-    sql := "delete from records where id = ?"
+    _, err := db.client.Exec("delete from records where id = ?", id)
+    if err != nil { return err }
 
-    for _, id := range ids {
-        _, err := db.client.Exec(sql, id)
-        if err != nil { return err }
+    rec, found := db.records.items[id]
+    if !found { return nil }
 
-        rec, found := db.records.items[id]
-        if !found { continue }
-
-        if _, ok := db.records.index[rec.LocalAddr.Name]; ok {
-            if _, ok := db.records.index[rec.LocalAddr.Name][id]; ok {
-                delete(db.records.index[rec.LocalAddr.Name], id)
-            }
-            if len(db.records.index[rec.LocalAddr.Name]) == 0 {
-                delete(db.records.index, rec.LocalAddr.Name)
-            }
+    if _, ok := db.records.index[rec.LocalAddr.Name]; ok {
+        if _, ok := db.records.index[rec.LocalAddr.Name][id]; ok {
+            delete(db.records.index[rec.LocalAddr.Name], id)
         }
-    
-        delete(db.records.items, id)
+        if len(db.records.index[rec.LocalAddr.Name]) == 0 {
+            delete(db.records.index, rec.LocalAddr.Name)
+        }
     }
+
+    delete(db.records.items, id)
     
     return nil
 }
 
-func (db *Client) LoadExceptions(args config.ExpArgs) ([]config.Exception, error) {
+func (db *Client) LoadExceptions(args config.ExpArgs) ([]interface{}, error) {
     db.exceptions.RLock()
     defer db.exceptions.RUnlock()
 
-    var items []config.Exception
+    var items []interface{}
 
     if args.Id != "" {
         rec, found := db.exceptions.items[args.Id]
@@ -434,43 +398,46 @@ func (db *Client) LoadExceptions(args config.ExpArgs) ([]config.Exception, error
     return items, nil
 }
 
-func (db *Client) SaveExceptions(records []config.Exception) error {
+func (db *Client) SaveException(rec config.SockTable) error {
     db.exceptions.Lock()
     defer db.exceptions.Unlock()
 
-    sql := "replace into exceptions (id,accountId,hostMask,ignoreMask) values (?,?,?,?)"
+    except, found := db.records.items[rec.Id]
+    if found && except.Timestamp > rec.Timestamp {
+        return nil
+    }
 
-    for _, rec := range records {
-        _, err := db.client.Exec(
-            sql, 
-            rec.Id, 
-            rec.AccountID,
-            rec.HostMask,
-            rec.IgnoreMask,
-        )
+    _, err := db.client.Exec(
+        "replace into exceptions (id,accountId,hostMask,ignoreMask) values (?,?,?,?)", 
+        rec.Id, 
+        rec.Options.AccountID,
+        rec.Options.HostMask,
+        rec.Options.IgnoreMask,
+    )
 
-        if err != nil {
-            return err
-        }
+    if err != nil {
+        return err
+    }
 
-        db.exceptions.items[rec.Id] = rec
+    db.exceptions.items[rec.Id] = config.Exception{
+        Id:            rec.Id,
+        Timestamp:     rec.Timestamp,
+        AccountID:     rec.Options.AccountID,
+        HostMask:      rec.Options.HostMask,
+        IgnoreMask:    rec.Options.IgnoreMask,
     }
     
     return nil
 }
 
-func (db *Client) DelExceptions(ids []string) error {
+func (db *Client) DelException(id string) error {
     db.exceptions.Lock()
     defer db.exceptions.Unlock()
 
-    sql := "delete from exceptions where id = ?"
+    _, err := db.client.Exec("delete from exceptions where id = ?", id)
+    if err != nil { return err }
 
-    for _, id := range ids {
-        _, err := db.client.Exec(sql, id)
-        if err != nil { return err }
-
-        delete(db.exceptions.items, id)
-    }
+    delete(db.exceptions.items, id)
 
     return nil
 }

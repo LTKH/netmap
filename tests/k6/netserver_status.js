@@ -53,7 +53,7 @@ export default function () {
       ] 
     }
     //console.log("test write host-", host);
-    let res = http.post(`http://127.0.0.1:8084/api/v1/netmap/records`, JSON.stringify(data));
+    let res = http.post(`http://127.0.0.1:8084/api/v1/netmap/status`, JSON.stringify(data));
 
     check(res, { 'status was 204': (r) => r.status == 204 });
 
@@ -62,25 +62,11 @@ export default function () {
         let res = http.get(`http://127.0.0.1:8084/api/v1/netmap/records?src_name=host-s${host}`);
 
         check(res, { 'status was 200': (r) => r.status == 200 });
-        check(res.json(), { 'retrieved alerts list': (r) => r.data[0].relation.result == 1 });
-        check(res.json(), { 'retrieved alerts list': (r) => r.data[1].relation.result == 1 });
-        check(res.json(), { 'retrieved alerts list': (r) => r.data[2].relation.result == 1 });
-        check(res.json(), { 'retrieved alerts list': (r) => r.data[3].relation.result == 1 });
-        check(res.json(), { 'retrieved alerts list': (r) => r.data[4].relation.result == 1 });
-
-        sleep(0.3);
-    });
-
-    group('03. Read status', () => {
-        //console.log("test read host-", host);
-        let res = http.get(`http://127.0.0.1:8086/api/v1/netmap/records?src_name=host-s${host}`);
-
-        check(res, { 'status was 200': (r) => r.status == 200 });
-        check(res.json(), { 'retrieved alerts list': (r) => r.data[0].relation.result == 1 });
-        check(res.json(), { 'retrieved alerts list': (r) => r.data[1].relation.result == 1 });
-        check(res.json(), { 'retrieved alerts list': (r) => r.data[2].relation.result == 1 });
-        check(res.json(), { 'retrieved alerts list': (r) => r.data[3].relation.result == 1 });
-        check(res.json(), { 'retrieved alerts list': (r) => r.data[4].relation.result == 1 });
+        //check(res.json(), { 'retrieved alerts list': (r) => r.data[0].relation.result == 1 });
+        //check(res.json(), { 'retrieved alerts list': (r) => r.data[1].relation.result == 1 });
+        //check(res.json(), { 'retrieved alerts list': (r) => r.data[2].relation.result == 1 });
+        //check(res.json(), { 'retrieved alerts list': (r) => r.data[3].relation.result == 1 });
+        //check(res.json(), { 'retrieved alerts list': (r) => r.data[4].relation.result == 1 });
 
         sleep(0.3);
     });

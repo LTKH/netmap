@@ -3,7 +3,7 @@ package config
 import (
     "io"
     "fmt"
-    "net"
+    //"net"
     //"time"
     "io/ioutil"
     "crypto/sha1"
@@ -27,6 +27,7 @@ type ExpArgs struct {
 
 type Exception struct {
     Id             string                 `json:"id,omitempty"`
+    Timestamp      int64                  `json:"timestamp,omitempty"`
     AccountID      uint32                 `json:"accountID"`
     HostMask       string                 `json:"hostMask"`
     IgnoreMask     string                 `json:"ignoreMask"`
@@ -44,29 +45,30 @@ type SockTable struct {
 
 // SockAddr represents
 type SockAddr struct {
-    IP             net.IP                 `json:"ip"`
+    IP             string                 `json:"ip"`
     Name           string                 `json:"name"`
-    Port           uint16                 `json:"port"`
+    Port           uint32                 `json:"port"`
 }
 
 type Relation struct {
     Mode           string                 `json:"mode"`
     Type           string                 `json:"type"`
-    Port           uint16                 `json:"port,omitempty"`
+    Port           uint32                 `json:"port,omitempty"`
     Command        string                 `json:"command,omitempty"`
-    Result         int                    `json:"result"`
-    Response       float64                `json:"response"`
-    Trace          int                    `json:"trace"`
-    Running        bool                   `json:"-"`
+    Result         int32                  `json:"result"`
+    Response       float32                `json:"response"`
+    Trace          int32                  `json:"trace"`
 }
 
 type Options struct {
     Service        string                 `json:"service,omitempty"`
     Status         string                 `json:"status,omitempty"`
     Command        string                 `json:"command,omitempty"`
-    Timeout        float64                `json:"timeout"`
-    MaxRespTime    float64                `json:"maxRespTime"`
+    Timeout        float32                `json:"timeout"`
+    MaxRespTime    float32                `json:"maxRespTime"`
     AccountID      uint32                 `json:"accountID"`
+    HostMask       string                 `json:"-"`
+    IgnoreMask     string                 `json:"-"`
 }
 
 type Config struct {
@@ -103,6 +105,10 @@ type Collector struct {
 
 type ExceptionData struct {
     Data           []Exception            `json:"data"`
+}
+
+type RecordsData struct {
+    Data           []SockTable            `json:"data"`
 }
 
 type NetstatData struct {

@@ -13,17 +13,17 @@ export const options = {
   ],
 };
 
-//var host = 0;
+var host = 0;
 
 export default function () {
-  //host = (host >= 10000) ? 0 : host +1;
+  host = (host >= 10000) ? 0 : host +1;
   //var ip1 = Math.round(host/1000);
   //var ip2 = Math.round(host/100);
   var ip1 = Math.floor(Math.random() * 100);
   var ip2 = Math.floor(Math.random() * 100);
   //let port = Math.floor(Math.random() * 1000);
 
-  console.log("test read", `${ip1}.${ip2}`);
+  //console.log("test read", `${ip1}.${ip2}`);
 
   group('01. Write records', () => {
     const data = { "data": [
