@@ -133,31 +133,33 @@ func (rpc *Rpc) ApplyEvent(event *pb.Event) error {
         log.Printf("[event] %v", string(jsn))
     }
 
-    rc := convertEvent(*event)
-
     switch event.Event {
     case "setStatus":
+        rc := convertEvent(*event)
         if err := db.DbClient.SaveStatus(*rpc.DB, rc); err != nil {
             return err
         }
     case "setTracert":
+        rc := convertEvent(*event)
         if err := db.DbClient.SaveTracert(*rpc.DB, rc); err != nil {
             return err
         }
     case "setRecord":
+        rc := convertEvent(*event)
         if err := db.DbClient.SaveRecord(*rpc.DB, rc); err != nil {
             return err
         }
     case "delRecord":
-        if err := db.DbClient.DelRecord(*rpc.DB, rc.Id); err != nil {
+        if err := db.DbClient.DelRecord(*rpc.DB, event.Id); err != nil {
             return err
         }
     case "setException":
+        rc := convertEvent(*event)
         if err := db.DbClient.SaveException(*rpc.DB, rc); err != nil {
             return err
         }
     case "delException":
-        if err := db.DbClient.DelException(*rpc.DB, rc.Id); err != nil {
+        if err := db.DbClient.DelException(*rpc.DB, event.Id); err != nil {
             return err
         }
     }
@@ -178,7 +180,7 @@ func (rpc *Rpc) RunClient(peer string) error {
     client := pb.NewEventServiceClient(conn)
 
     // Вызов метода для получения списка объектов
-    resp, err := client.ListObjects(ctx, &pb.ListObjectsRequest{Timestamp: 0})
+    resp, err := client.ListObjects(ctx, &pb.ListObjectsRequest{})
     if err != nil {
         return err
     }
@@ -266,14 +268,33 @@ func (s *Server) Subscribe(req *pb.SubscribeRequest, stream pb.EventService_Subs
 }
 
 func (s *Server) ListObjects(req *pb.ListObjectsRequest, stream pb.EventService_ListObjectsServer) error {
-    args := config.RecArgs{Timestamp: req.Timestamp}
-    records, err := db.DbClient.LoadRecords(*s.DB, args)
+    records, err := db.DbClient.LoadRecords(*s.DB, config.RecArgs{})
     if err != nil {
         return err
     }
 
     for _, rec := range records {
         if err := stream.Send(convertRec(ServerId, "setRecord", rec)); err != nil {
+            log.Printf("[error] sending event: %v", err)
+            return err
+        }
+    }
+
+    exceptions, err := db.DbClient.LoadExceptions(*s.DB, config.ExpArgs{})
+    if err != nil {
+        return err
+    }
+
+    for _, ex := range exceptions {
+        rec := config.SockTable{
+            Id:             ex.Id, 
+            Options: config.Options{
+                AccountID:  ex.AccountID,
+                HostMask:   ex.HostMask,
+                IgnoreMask: ex.IgnoreMask,
+            },
+        }
+        if err := stream.Send(convertRec(ServerId, "setException", rec)); err != nil {
             log.Printf("[error] sending event: %v", err)
             return err
         }

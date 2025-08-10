@@ -175,13 +175,13 @@ func GetSocks(ihosts []string, ids map[string]bool, options config.Options, inco
 
             rec := config.SockTable{
                 LocalAddr: config.SockAddr{
-                    IP:          e.LocalAddr.IP,
-                    Port:        e.LocalAddr.Port,
+                    IP:          e.LocalAddr.IP.String(),
+                    Port:        uint32(e.LocalAddr.Port),
                     //Name:        "",
                 },
                 RemoteAddr: config.SockAddr{
-                    IP:          e.RemoteAddr.IP,
-                    Port:        e.RemoteAddr.Port,
+                    IP:          e.RemoteAddr.IP.String(),
+                    Port:        uint32(e.RemoteAddr.Port),
                     //Name:        "",
                 },
                 Relation: config.Relation{

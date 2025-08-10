@@ -59,6 +59,7 @@ message SubscribeRequest {
 }
 
 message ListObjectsRequest {
-  int64 timestamp = 1;
+  // Можно добавить фильтры или параметры подписки
+  //int64 timestamp = 1;
 }
 

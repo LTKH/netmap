@@ -21,7 +21,7 @@ type DbClient interface {
     SaveRecord(rec config.SockTable) error
     DelRecord(id string) error
 
-    LoadExceptions(args config.ExpArgs) ([]interface{}, error)
+    LoadExceptions(args config.ExpArgs) ([]config.Exception, error)
     SaveException(rec config.SockTable) error
     DelException(id string) error
 }

@@ -1,6 +1,11 @@
 global:
   cert_file:      ""
   cert_key:       ""
+  users:
+    - username:     "test"
+      password:     "test"
+    - username:     "test1"
+      password:     "test1"
   
 db:
   #client:         "redis"
@@ -16,5 +21,8 @@ notifier:
   path:           ""
 
 collector:
-  urls:           ["http://127.0.0.1:8086","http://127.0.0.1:8087"]
-  path:           "" 
+  urls:           ["http://127.0.0.1:8084"]
+  path:           "/api/v1/netmap/records" 
+  prepare:        true
+  username:       "test"
+  password:       "test"

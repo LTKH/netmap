@@ -223,6 +223,7 @@ func (db *Client) SaveStatus(rec config.SockTable) error {
 }
 
 func (db *Client) SaveNetstat(rec config.SockTable) error {
+
     return nil
 }
 
@@ -370,11 +371,11 @@ func (db *Client) DelRecord(id string) error {
     return nil
 }
 
-func (db *Client) LoadExceptions(args config.ExpArgs) ([]interface{}, error) {
+func (db *Client) LoadExceptions(args config.ExpArgs) ([]config.Exception, error) {
     db.exceptions.RLock()
     defer db.exceptions.RUnlock()
 
-    var items []interface{}
+    items := []config.Exception{}
 
     if args.Id != "" {
         rec, found := db.exceptions.items[args.Id]

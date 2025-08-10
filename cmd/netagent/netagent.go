@@ -1,22 +1,25 @@
 package main
 
 import (
-    "bytes"
-    "context"
-    "encoding/json"
-    "flag"
-    "fmt"
-    "log"
-    "math/rand"
-    "net"
     "os"
     "os/exec"
     "os/signal"
-    "runtime"
+    "fmt"
+    "log"
+    "net"
+    "time"
+    "flag"
     "sync"
+    "bytes"
+    "context"
+    "math/rand"
+    "crypto/aes"
+    "crypto/cipher"
+    "runtime"
     "syscall"
     "text/template"
-    "time"
+    "encoding/json"
+    "encoding/base64"
 
     "github.com/ltkh/netmap/internal/cache"
     "github.com/ltkh/netmap/internal/client"
@@ -31,13 +34,8 @@ var (
     httpClient   = client.NewHttpClient(nil)
     cacheRecords = cache.NewCacheRecords(10000)
     Version      = "unknown"
+    KeyString    = "khuyg743878g8s2:b970m-z0"
 )
-
-//type Records struct {
-//    sync.RWMutex
-//    items map[string]config.SockTable
-//    limit int
-//}
 
 type Blocker struct {
     sync.RWMutex
@@ -45,58 +43,91 @@ type Blocker struct {
 }
 
 type Config struct {
-    Global      *Global     `toml:"global"`
-    Netstat     *Netstat    `toml:"netstat"`
-    Connections *Connection `toml:"connections"`
+    Global          *Global                  `toml:"global"`
+    Netstat         *Netstat                 `toml:"netstat"`
+    Connections     *Connection              `toml:"connections"`
 }
 
 type Global struct {
-    URLs            []string `toml:"urls"`
-    ContentEncoding string   `toml:"content_encoding"`
-    Interval        string   `toml:"interval"`
-    Timeout         string   `toml:"timeout"`
-    MaxRespTime     string   `toml:"max_resp_time"`
-    AccountID       uint32   `toml:"account_id"`
+    URLs            []string                 `toml:"urls"`
+    ContentEncoding string                   `toml:"content_encoding"`
+    Interval        string                   `toml:"interval"`
+    Timeout         string                   `toml:"timeout"`
+    MaxRespTime     string                   `toml:"max_resp_time"`
+    AccountID       uint32                   `toml:"account_id"`
 }
 
 type Netstat struct {
-    URLs            []string `toml:"urls"`
-    ContentEncoding string   `toml:"content_encoding"`
-    Status          string   `toml:"status"`
-    Incoming        bool     `toml:"incoming"`
-    IgnoreHosts     []string `toml:"ignore_hosts"`
-    Interval        string   `toml:"interval"`
-    Timeout         string   `toml:"timeout"`
-    MaxRespTime     string   `toml:"max_resp_time"`
+    URLs             []string                `toml:"urls"`
+    ContentEncoding  string                  `toml:"content_encoding"`
+    Status           string                  `toml:"status"`
+    Incoming         bool                    `toml:"incoming"`
+    IgnoreHosts      []string                `toml:"ignore_hosts"`
+    Interval         string                  `toml:"interval"`
+    Timeout          string                  `toml:"timeout"`
+    MaxRespTime      string                  `toml:"max_resp_time"`
+    Username         string                  `toml:"username"`
+    Password         string                  `toml:"password"`
 }
 
 type Connection struct {
-    URLs            []string `toml:"urls"`
-    ContentEncoding string   `toml:"content_encoding"`
-    Command         string   `toml:"command"`
-    Interval        string   `toml:"interval"`
-    Timeout         string   `toml:"timeout"`
-    MaxRespTime     string   `toml:"max_resp_time"`
+    URLs             []string                `toml:"urls"`
+    ContentEncoding  string                  `toml:"content_encoding"`
+    Command          string                  `toml:"command"`
+    Interval         string                  `toml:"interval"`
+    Timeout          string                  `toml:"timeout"`
+    MaxRespTime      string                  `toml:"max_resp_time"`
+    Username         string                  `toml:"username"`
+    Password         string                  `toml:"password"`
 }
 
 type NetResponse struct {
-    Address  string        `json:"address"`
-    Timeout  time.Duration `json:"timeout"`
-    Protocol string        `json:"protocol"`
+    Address          string                  `json:"address"`
+    Timeout          time.Duration           `json:"timeout"`
+    Protocol         string                  `json:"protocol"`
 }
 
 type Alert struct {
-    Status      string            `json:"status,omitempty"`
-    Labels      map[string]string `json:"labels"`
-    Annotations Annotations       `json:"annotations"`
+    Status           string                  `json:"status,omitempty"`
+    Labels           map[string]string       `json:"labels"`
+    Annotations      Annotations             `json:"annotations"`
 }
 
 type Annotations struct {
-    Description string `json:"description"`
+    Description      string                  `json:"description"`
 }
 
 type ExceptionData struct {
-    Data []config.Exception `json:"data"`
+    Data             []config.Exception      `json:"data"`
+}
+
+func encrypt(text string) (string, error) {
+    block, err := aes.NewCipher([]byte(KeyString))
+    if err != nil {
+        return "", err
+    }
+    plainText := []byte(text)
+    bytes := []byte{35, 46, 57, 24, 85, 35, 24, 74, 87, 35, 88, 98, 66, 32, 14, 05}
+    cfb := cipher.NewCFBEncrypter(block, bytes)
+    cipherText := make([]byte, len(plainText))
+    cfb.XORKeyStream(cipherText, plainText)
+    return base64.StdEncoding.EncodeToString(cipherText), nil
+}
+ 
+func decrypt(text string) (string, error) {
+    block, err := aes.NewCipher([]byte(KeyString))
+    if err != nil {
+        return "", err
+    }
+    cipherText, err := base64.StdEncoding.DecodeString(text)
+    if err != nil {
+        return "", err
+    }
+    bytes := []byte{35, 46, 57, 24, 85, 35, 24, 74, 87, 35, 88, 98, 66, 32, 14, 05}
+    cfb := cipher.NewCFBDecrypter(block, bytes)
+    plainText := make([]byte, len(cipherText))
+    cfb.XORKeyStream(plainText, cipherText)
+    return string(plainText), nil
 }
 
 func (t *Blocker) Action(act, key string) bool {
@@ -133,7 +164,7 @@ func randURLs(urls []string) []string {
     return urls
 }
 
-func dialTimeout(network, address string, timeout time.Duration) (int, float64) {
+func dialTimeout(network, address string, timeout time.Duration) (int32, float32) {
     // Set default values
     if timeout == 0 {
         timeout = 5
@@ -143,23 +174,23 @@ func dialTimeout(network, address string, timeout time.Duration) (int, float64) 
     // Connecting
     conn, err := net.DialTimeout(network, address, timeout)
     // Stop timer
-    responseTime := time.Since(start).Seconds()
+    responseTime := float32(time.Since(start).Seconds())
     // Handle error
     if err != nil {
         log.Printf("[error] %v", err)
 
         if e, ok := err.(net.Error); ok && e.Timeout() {
-            return 1, responseTime
+            return int32(1), responseTime
         }
-        return 2, responseTime
+        return int32(2), responseTime
     }
 
     defer conn.Close()
 
-    return 0, responseTime
+    return int32(0), responseTime
 }
 
-func runCommand(scmd string, timeout time.Duration) ([]byte, float64, error) {
+func runCommand(scmd string, timeout time.Duration) ([]byte, float32, error) {
     log.Printf("[info] running '%s'", scmd)
     // Start Timer
     start := time.Now()
@@ -179,7 +210,7 @@ func runCommand(scmd string, timeout time.Duration) ([]byte, float64, error) {
     out, err := cmd.Output()
 
     // Stop timer
-    responseTime := time.Since(start).Seconds()
+    responseTime := float32(time.Since(start).Seconds())
 
     // Check the context error to see if the timeout was executed
     if ctx.Err() == context.DeadlineExceeded {
@@ -290,8 +321,10 @@ func getConnections(cfg Config, hname string, debug bool) {
 
     // Get connections
     clnt := client.HttpConfig{
-        URLs:            randURLs(cfg.Connections.URLs),
+        URLs: randURLs(cfg.Connections.URLs),
         ContentEncoding: cfg.Global.ContentEncoding,
+        Username: cfg.Connections.Username,
+        Password: cfg.Connections.Password,
     }
 
     body, err := httpClient.ReadRecords(clnt, fmt.Sprintf("/api/v1/netmap/records?src_name=%s", hname))
@@ -325,11 +358,11 @@ func getConnections(cfg Config, hname string, debug bool) {
         }
 
         if nr.Options.Timeout == 0 {
-            nr.Options.Timeout = float64(cnTimeout / time.Second)
+            nr.Options.Timeout = float32(cnTimeout / time.Second)
         }
 
         if nr.Options.MaxRespTime == 0 {
-            nr.Options.MaxRespTime = float64(cnMaxRespTime / time.Second)
+            nr.Options.MaxRespTime = float32(cnMaxRespTime / time.Second)
         }
 
         err := cacheRecords.Set(config.GetIdRec(&nr), nr, timestamp)
@@ -350,21 +383,34 @@ func main() {
     runtime.GOMAXPROCS(runtime.NumCPU())
 
     // Command-line flag parsing
-    cfFile := flag.String("config.file", "config/netmap.toml", "config file")
-    interval := flag.Int("interval", 30, "interval")
-    plugin := flag.String("plugin", "", "plugin")
-    lgFile := flag.String("log.file", "", "log file")
-    logMaxSize := flag.Int("log.max-size", 1, "log max size")
-    logMaxBackups := flag.Int("log.max-backups", 3, "log max backups")
-    logMaxAge := flag.Int("log.max-age", 10, "log max age")
-    logCompress := flag.Bool("log.compress", true, "log compress")
-    version := flag.Bool("version", false, "show netagent version")
-    debug := flag.Bool("debug", false, "debug mode")
+    cfFile          := flag.String("config.file", "config/netmap.toml", "config file")
+    interval        := flag.Int("interval", 30, "interval")
+    plugin          := flag.String("plugin", "", "plugin")
+    lgFile          := flag.String("log.file", "", "log file")
+    logMaxSize      := flag.Int("log.max-size", 1, "log max size")
+    logMaxBackups   := flag.Int("log.max-backups", 3, "log max backups")
+    logMaxAge       := flag.Int("log.max-age", 10, "log max age")
+    logCompress     := flag.Bool("log.compress", true, "log compress")
+    version         := flag.Bool("version", false, "show netagent version")
+    debug           := flag.Bool("debug", false, "debug mode")
+    encryptPass     := flag.String("encrypt", "", "encrypt string")
+    decryptPass     := flag.Bool("decrypt", false, "decrypt password string")
+
     flag.Parse()
 
     // Show version
     if *version {
         fmt.Printf("%v\n", Version)
+        return
+    }
+
+    // Encrypt
+    if *encryptPass != "" {
+        passwd, err := encrypt(*encryptPass)
+        if err != nil {
+            log.Fatalf("[error] %v", err)
+        }
+        log.Printf("[pass] %s", passwd)
         return
     }
 
@@ -418,6 +464,24 @@ func main() {
         log.Fatal("[error] setting connection interval: invalid duration")
     }
 
+    //
+    if *decryptPass {
+        if cfg.Netstat.Password != "" {
+            passwd, err := decrypt(cfg.Netstat.Password)
+            if err != nil {
+                log.Fatalf("[error] %v", err)
+            }
+            cfg.Netstat.Password = passwd
+        }
+        if cfg.Connections.Password != "" {
+            passwd, err := decrypt(cfg.Connections.Password)
+            if err != nil {
+                log.Fatalf("[error] %v", err)
+            }
+            cfg.Connections.Password = passwd
+        }
+    }
+
     // Get hostname
     hname, err := netstat.Hostname()
     if err != nil {
@@ -452,8 +516,10 @@ func main() {
     // Сheck connections
     go func() {
         clnt := client.HttpConfig{
-            URLs:            randURLs(cfg.Global.URLs),
+            URLs: randURLs(cfg.Global.URLs),
             ContentEncoding: cfg.Global.ContentEncoding,
+            Username: cfg.Connections.Username,
+            Password: cfg.Connections.Password,
         }
 
         blck := Blocker{
@@ -504,15 +570,15 @@ func main() {
                 go func(nr config.SockTable) {
                     defer wg.Done()
 
-                    result := 0
-                    response := float64(0)
+                    result := int32(0)
+                    response := float32(0)
                     trace := nr.Relation.Trace
 
                     tags := map[string]string{
                         "src_name":   nr.LocalAddr.Name,
-                        "src_ip":     nr.LocalAddr.IP.String(),
+                        "src_ip":     nr.LocalAddr.IP,
                         "dst_name":   nr.RemoteAddr.Name,
-                        "dst_ip":     nr.RemoteAddr.IP.String(),
+                        "dst_ip":     nr.RemoteAddr.IP,
                         "port":       fmt.Sprintf("%v", nr.Relation.Port),
                         "mode":       nr.Relation.Mode,
                         "service":    nr.Options.Service,
@@ -524,7 +590,7 @@ func main() {
                     switch nr.Relation.Mode {
 
                     case "tcp", "udp":
-                        address := fmt.Sprintf("%v:%v", nr.RemoteAddr.IP.String(), nr.Relation.Port)
+                        address := fmt.Sprintf("%v:%v", nr.RemoteAddr.IP, nr.Relation.Port)
                         result, response = dialTimeout(nr.Relation.Mode, address, timeout)
 
                         if result == 1 || response >= nr.Options.MaxRespTime || nr.Relation.Trace == 2 {
@@ -637,8 +703,10 @@ func main() {
         }
 
         clnt := client.HttpConfig{
-            URLs:            randURLs(cfg.Netstat.URLs),
+            URLs: randURLs(cfg.Netstat.URLs),
             ContentEncoding: cfg.Netstat.ContentEncoding,
+            Username: cfg.Netstat.Username,
+            Password: cfg.Netstat.Password,
         }
 
         // Set Interval
@@ -671,8 +739,8 @@ func main() {
         for {
             options := config.Options{
                 Status:      cfg.Netstat.Status,
-                Timeout:     float64(netstatTimeout / time.Second),
-                MaxRespTime: float64(netstatMaxRespTime / time.Second),
+                Timeout:     float32(netstatTimeout / time.Second),
+                MaxRespTime: float32(netstatMaxRespTime / time.Second),
                 AccountID:   cfg.Global.AccountID,
             }
 

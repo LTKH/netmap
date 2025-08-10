@@ -161,6 +161,8 @@ func (api *Api) SendToCollect() {
         if len(netstat.Data) > 0 {
             config := client.HttpConfig{
                 URLs: api.Conf.Collector.URLs,
+                Username: api.Conf.Collector.Username,
+                Password: api.Conf.Collector.Password,
             }
             
             if err := httpClient.WriteRecords(config, api.Conf.Collector.Path, body); err != nil {
@@ -179,6 +181,15 @@ func (api *Api) ApiHealthy(w http.ResponseWriter, r *http.Request) {
 
 func (api *Api) ApiStatus(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
+
+    user, pass, _ := r.BasicAuth()
+    if len(api.Conf.Global.Users) > 0 {
+        if ps, ok := api.Conf.Global.Users[user]; !ok || ps != pass {
+            w.WriteHeader(403)
+            w.Write(encodeResp(&Resp{Status:"error", Error:"access is denied"}))
+            return
+        }
+    }
 
     if r.Method == "POST" {
         var reader io.ReadCloser
@@ -247,6 +258,15 @@ func (api *Api) ApiStatus(w http.ResponseWriter, r *http.Request) {
 func (api *Api) ApiNetstat(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
 
+    user, pass, _ := r.BasicAuth()
+    if len(api.Conf.Global.Users) > 0 {
+        if ps, ok := api.Conf.Global.Users[user]; !ok || ps != pass {
+            w.WriteHeader(403)
+            w.Write(encodeResp(&Resp{Status:"error", Error:"access is denied"}))
+            return
+        }
+    }
+
     if r.Method == "POST" {
         var reader io.ReadCloser
         var err error
@@ -284,16 +304,19 @@ func (api *Api) ApiNetstat(w http.ResponseWriter, r *http.Request) {
             return
         }
 
-        /*
-        if err := db.DbClient.SaveNetstat(*api.DB, netstat.Data); err != nil {
-            w.WriteHeader(500)
-            w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
-            return
-        }
-        */
-
         if len(api.Conf.Collector.URLs) > 0 {
             for _, rec := range netstat.Data {
+                if api.Conf.Collector.Prepare {
+                    localAddr := rec.LocalAddr
+                    remoteAddr := rec.RemoteAddr
+                    if rec.Relation.Type == "incoming" {
+                        rec.LocalAddr = remoteAddr
+                        rec.RemoteAddr = localAddr
+                        rec.Relation.Type = ""
+                    }
+                    rec.Relation.Port = rec.RemoteAddr.Port
+                    rec.Timestamp = -1
+                }
                 select {
                 case api.Collect <- rec:
                     //log.Printf("[debug] len chan - %v", len(api.Collect))
@@ -313,6 +336,15 @@ func (api *Api) ApiNetstat(w http.ResponseWriter, r *http.Request) {
 
 func (api *Api) ApiTracert(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
+
+    user, pass, _ := r.BasicAuth()
+    if len(api.Conf.Global.Users) > 0 {
+        if ps, ok := api.Conf.Global.Users[user]; !ok || ps != pass {
+            w.WriteHeader(403)
+            w.Write(encodeResp(&Resp{Status:"error", Error:"access is denied"}))
+            return
+        }
+    }
 
     if r.Method == "POST" {
         var reader io.ReadCloser
@@ -380,6 +412,15 @@ func (api *Api) ApiTracert(w http.ResponseWriter, r *http.Request) {
 
 func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
+
+    user, pass, _ := r.BasicAuth()
+    if len(api.Conf.Global.Users) > 0 {
+        if ps, ok := api.Conf.Global.Users[user]; !ok || ps != pass {
+            w.WriteHeader(403)
+            w.Write(encodeResp(&Resp{Status:"error", Error:"access is denied"}))
+            return
+        }
+    }
 
     if r.Method == "GET" {
         var args config.RecArgs
@@ -575,6 +616,15 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
 func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
 
+    user, pass, _ := r.BasicAuth()
+    if len(api.Conf.Global.Users) > 0 {
+        if ps, ok := api.Conf.Global.Users[user]; !ok || ps != pass {
+            w.WriteHeader(403)
+            w.Write(encodeResp(&Resp{Status:"error", Error:"access is denied"}))
+            return
+        }
+    }
+
     if r.Method == "GET" {
         var args config.ExpArgs
 
@@ -596,7 +646,12 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
             return
         }
 
-        data := encodeResp(&Resp{Status:"success", Data:items})
+        var exceptions []interface{}
+        for _, item := range items{
+            exceptions = append(exceptions, item)
+        }
+
+        data := encodeResp(&Resp{Status:"success", Data:exceptions})
         buf, ok, err := compressData(data, r.Header.Get("Accept-Encoding"))
         if err != nil {
             log.Printf("[error] %v - %s", err, r.URL.Path)
@@ -747,6 +802,15 @@ func (api *Api) ApiExceptions(w http.ResponseWriter, r *http.Request) {
 func (api *Api) ApiWebhook(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
 
+    user, pass, _ := r.BasicAuth()
+    if len(api.Conf.Global.Users) > 0 {
+        if ps, ok := api.Conf.Global.Users[user]; !ok || ps != pass {
+            w.WriteHeader(403)
+            w.Write(encodeResp(&Resp{Status:"error", Error:"access is denied"}))
+            return
+        }
+    }
+
     if r.Method == "POST" {
         var reader io.ReadCloser
         var err error
@@ -779,6 +843,8 @@ func (api *Api) ApiWebhook(w http.ResponseWriter, r *http.Request) {
             for _, url := range api.Conf.Notifier.URLs {
                 config := client.HttpConfig{
                     URLs: []string{url},
+                    Username: api.Conf.Notifier.Username,
+                    Password: api.Conf.Notifier.Password,
                 }
                 go httpClient.WriteRecords(config, api.Conf.Notifier.Path, body)
             }

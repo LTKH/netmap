@@ -415,7 +415,6 @@ func (*SubscribeRequest) Descriptor() ([]byte, []int) {
 
 type ListObjectsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Timestamp     int64                  `protobuf:"varint,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -448,13 +447,6 @@ func (x *ListObjectsRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ListObjectsRequest.ProtoReflect.Descriptor instead.
 func (*ListObjectsRequest) Descriptor() ([]byte, []int) {
 	return file_proto_netserver_proto_rawDescGZIP(), []int{5}
-}
-
-func (x *ListObjectsRequest) GetTimestamp() int64 {
-	if x != nil {
-		return x.Timestamp
-	}
-	return 0
 }
 
 var File_proto_netserver_proto protoreflect.FileDescriptor
@@ -496,9 +488,8 @@ const file_proto_netserver_proto_rawDesc = "" +
 	"\n" +
 	"ignoreMask\x18\b \x01(\tR\n" +
 	"ignoreMask\"\x12\n" +
-	"\x10SubscribeRequest\"2\n" +
-	"\x12ListObjectsRequest\x12\x1c\n" +
-	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp2\x82\x01\n" +
+	"\x10SubscribeRequest\"\x14\n" +
+	"\x12ListObjectsRequest2\x82\x01\n" +
 	"\fEventService\x12:\n" +
 	"\vListObjects\x12\x1a.events.ListObjectsRequest\x1a\r.events.Event0\x01\x126\n" +
 	"\tSubscribe\x12\x18.events.SubscribeRequest\x1a\r.events.Event0\x01B\x03Z\x01.b\x06proto3"

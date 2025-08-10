@@ -8,12 +8,13 @@ import (
     "time"
     "io/ioutil"
     "fmt"
+    "crypto/tls"
     "compress/gzip"
 )
 
 type HttpClient struct {
     client           *http.Client
-    config           *HttpConfig
+    //config           *HttpConfig
 }
 
 type HttpConfig struct {
@@ -38,52 +39,13 @@ func NewHttpClient(config *HttpConfig) *HttpClient {
                 MaxIdleConnsPerHost: 10,
                 IdleConnTimeout:     90 * time.Second,
                 DisableCompression:  false,
+                TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
             },
             Timeout: 5 * time.Second,
         },
-        config: config,
+        //config: config,
     }
     return client
-}
-
-func (h *HttpClient) NewRequest(method, path string, data []byte) (Response, error) {
-    var resp Response
-    var reader io.ReadCloser
-
-    req, err := http.NewRequest(method, h.config.URL+path, bytes.NewReader(data))
-    if err != nil {
-        return resp, err
-    }
-
-    req.SetBasicAuth(h.config.Username, h.config.Password)
-    req.Header.Set("Content-Type", "application/json")
-
-    response, err := h.client.Do(req)
-    if err != nil {
-        return resp, err
-    }
-    resp.StatusCode = response.StatusCode
-    resp.Header = response.Header
-    
-    // Check that the server actual sent compressed data
-    switch response.Header.Get("Content-Encoding") {
-        case "gzip":
-            reader, err = gzip.NewReader(response.Body)
-            if err != nil {
-                return resp, err
-            }
-            defer reader.Close()
-        default:
-            reader = response.Body
-    }
-
-    body, err := ioutil.ReadAll(reader)
-    if err != nil {
-        return resp, err
-    }
-    resp.Body = body
-
-    return resp, nil
 }
 
 func (h *HttpClient) WriteRecords(cfg HttpConfig, path string, data []byte) error {
@@ -109,12 +71,16 @@ func (h *HttpClient) WriteRecords(cfg HttpConfig, path string, data []byte) erro
             continue
         }
 
+        if cfg.Username != "" && cfg.Password != "" {
+            req.SetBasicAuth(cfg.Username, cfg.Password)
+        }
+
         req.Header.Set("Content-Type", "application/json")
 
         if cfg.ContentEncoding == "gzip" {
             req.Header.Set("Content-Encoding", "gzip")
         }
-
+        
         for name, value := range cfg.Headers {
             req.Header.Set(name, value)
         }
@@ -150,11 +116,15 @@ func (h *HttpClient) ReadRecords(cfg HttpConfig, path string) ([]byte, error) {
             continue
         }
 
-        for name, value := range cfg.Headers {
-            req.Header.Set(name, value)
+        if cfg.Username != "" && cfg.Password != "" {
+            req.SetBasicAuth(cfg.Username, cfg.Password)
         }
 
         req.Header.Set("Accept-Encoding", "gzip")
+
+        for name, value := range cfg.Headers {
+            req.Header.Set(name, value)
+        }
 
         r, err := h.client.Do(req)
         if err != nil {
@@ -214,6 +184,10 @@ func (h *HttpClient) DelRecords(cfg HttpConfig, path string, data []byte) error 
         if err != nil {
             log.Printf("[error] %s - %v", url, err)
             continue
+        }
+
+        if cfg.Username != "" && cfg.Password != "" {
+            req.SetBasicAuth(cfg.Username, cfg.Password)
         }
 
         req.Header.Set("Content-Type", "application/json")

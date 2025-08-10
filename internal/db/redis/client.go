@@ -94,8 +94,8 @@ func (db *Client) DelRecord(id string) error {
     return nil
 }
 
-func (db *Client) LoadExceptions(args config.ExpArgs) ([]interface{}, error) {
-    result := []interface{}{}
+func (db *Client) LoadExceptions(args config.ExpArgs) ([]config.Exception, error) {
+    result := []config.Exception{}
     return result, nil
 }
 
