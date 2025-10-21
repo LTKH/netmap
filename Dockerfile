@@ -1,5 +1,5 @@
-ARG GOLANG_IMAGE="golang:1.21.0"
-ARG RUNNER_IMAGE="busybox:1.37.0"
+ARG GOLANG_IMAGE="golang:1.23.0"
+ARG RUNNER_IMAGE="busybox:1.36.1"
 
 FROM ${GOLANG_IMAGE} AS builder
 
@@ -10,8 +10,7 @@ RUN go build -o /bin/netserver cmd/netserver/netserver.go
 
 FROM ${RUNNER_IMAGE}
 
-EXPOSE 8084
-EXPOSE 8085
+EXPOSE 8084 8085
 
 ENV USER_ID=1000
 ENV GROUP_ID=1000
@@ -27,6 +26,8 @@ USER $USER_NAME
 
 COPY --from=builder /bin/netserver /bin/netserver
 COPY config/config.yml /etc/netserver.yml
+
+VOLUME ["/data"]
 
 ENTRYPOINT ["/bin/netserver"]
 CMD ["-config.file=/etc/netserver.yml"]

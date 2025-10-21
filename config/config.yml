@@ -6,7 +6,7 @@ global:
   #    password:     "test"
   #  - username:     "test1"
   #    password:     "test1"
-  
+
 db:
   client:         "sqlite3"
   conn_string:    "/tmp/netmap.db"
@@ -22,5 +22,5 @@ collector:
   #urls:           ["http://127.0.0.1:8084"]
   path:           "/api/v1/netmap/records" 
   prepare:        true
-  username:       "test"
-  password:       "test"
+  #username:       "test"
+  #password:       "test"

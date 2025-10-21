@@ -30,8 +30,8 @@ var (
 
 func main() {
     // Command-line flag parsing with environment variables
-    clAddress       := flag.String("listen.client-address", getEnv("NETSERVER_CLIENT_ADDRESS", "127.0.0.1:8084"), "listen client address")
-    prAddress       := flag.String("listen.peer-address", getEnv("NETSERVER_PEER_ADDRESS", "127.0.0.1:8085"), "listen peer address")
+    clAddress       := flag.String("listen.client-address", getEnv("NETSERVER_CLIENT_ADDRESS", "0.0.0.0:8084"), "listen client address")
+    prAddress       := flag.String("listen.peer-address", getEnv("NETSERVER_PEER_ADDRESS", "0.0.0.0:8085"), "listen peer address")
     initCluster     := flag.String("initial-cluster", getEnv("NETSERVER_INITIAL_CLUSTER", ""), "initial cluster nodes")
     connString      := flag.String("db.conn-string", getEnv("NETSERVER_DB_CONN_STRING", ""), "db connection string")
     cfFile          := flag.String("config.file", getEnv("NETSERVER_CONFIG_FILE", "config/config.yml"), "config file")
@@ -84,8 +84,6 @@ func main() {
         peers = strings.Split(*initCluster, ",")
     }
 
-    log.Print("[info] netserver started -_^")
-
     // Creating gRPC
     srvV1 := v1.NewServer(&clientDB)
     grpcServer := grpc.NewServer()
@@ -135,6 +133,8 @@ func main() {
             }
         }
     }(cfg.Global)
+
+    log.Print("[info] netserver started -_^")
 
     // Program completion signal processing
     c := make(chan os.Signal, 2)
