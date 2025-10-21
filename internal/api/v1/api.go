@@ -504,8 +504,6 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
             return
         }
 
-        rhost := readUserIP(r)
-
         for _, rc := range recData.Data {
             if rc.Id == "" {
                 rc.Id = config.GetIdRec(&rc)
@@ -514,28 +512,34 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
                 rc.Timestamp = time.Now().UTC().Unix()
             }
             if rc.LocalAddr.Name == "" {
-                log.Printf("[error] parameter missing localAddr.name, sender - %s", rhost)
-                continue
+                w.WriteHeader(400)
+                w.Write(encodeResp(&Resp{Status:"error", Error:"parameter missing localAddr.name"}))
+                return
             }
             if rc.LocalAddr.IP == "" {
-                log.Printf("[error] parameter missing LocalAddr.IP, sender - %s", rhost)
-                continue
+                w.WriteHeader(400)
+                w.Write(encodeResp(&Resp{Status:"error", Error:"parameter missing LocalAddr.ip"}))
+                return
             }
             if rc.RemoteAddr.Name == "" {
-                log.Printf("[error] parameter missing RemoteAddr.Name, sender - %s", rhost)
-                continue
+                w.WriteHeader(400)
+                w.Write(encodeResp(&Resp{Status:"error", Error:"parameter missing remoteAddr.name"}))
+                return
             }
             if rc.RemoteAddr.IP == "" {
-                log.Printf("[error] parameter missing RemoteAddr.IP, sender - %s", rhost)
-                continue
+                w.WriteHeader(400)
+                w.Write(encodeResp(&Resp{Status:"error", Error:"parameter missing remoteAddr.ip"}))
+                return
             }
-            if rc.Relation.Port == 0 {
-                log.Printf("[error] parameter missing Relation.Port, sender - %s", rhost)
-                continue
+            if rc.Relation.Mode != "cmd" && rc.Relation.Port == 0 {
+                w.WriteHeader(400)
+                w.Write(encodeResp(&Resp{Status:"error", Error:"parameter missing relation.port"}))
+                return
             }
             if rc.Relation.Mode == "" {
-                log.Printf("[error] parameter missing Relation.Mode, sender - %s", rhost)
-                continue
+                w.WriteHeader(400)
+                w.Write(encodeResp(&Resp{Status:"error", Error:"parameter missing relation.mode"}))
+                return
             }
 
             if err := db.DbClient.SaveRecord(*api.DB, rc); err != nil {

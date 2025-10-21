@@ -5,7 +5,6 @@ import (
     "github.com/ltkh/netmap/internal/config"
     "github.com/ltkh/netmap/internal/db/cache"
     "github.com/ltkh/netmap/internal/db/sqlite3"
-    "github.com/ltkh/netmap/internal/db/redis"
 )
 
 type DbClient interface {
@@ -28,12 +27,10 @@ type DbClient interface {
 
 func NewClient(config *config.DB) (DbClient, error) {
     switch config.Client {
-        case "sqlite3":
-            return sqlite3.New(config)
-        case "cache":
-            return cache.New(config)
-        case "redis":
-            return redis.New(config)
+    case "sqlite3":
+        return sqlite3.New(config)
+    case "cache":
+        return cache.New(config)
     }
     return nil, errors.New("invalid client")
 }

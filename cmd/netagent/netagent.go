@@ -11,6 +11,7 @@ import (
     "flag"
     "sync"
     "bytes"
+    "bufio"
     "context"
     "math/rand"
     "crypto/aes"
@@ -35,6 +36,8 @@ var (
     cacheRecords = cache.NewCacheRecords(10000)
     Version      = "unknown"
     KeyString    = "khuyg743878g8s2:b970m-z0"
+    statusChan   chan config.SockTable
+    webhookChan  chan Alert
 )
 
 type Blocker struct {
@@ -131,22 +134,21 @@ func decrypt(text string) (string, error) {
 }
 
 func (t *Blocker) Action(act, key string) bool {
-    if act == "get" {
+    switch act {
+    case "get":
         t.RLock()
         defer t.RUnlock()
 
         if _, found := t.items[key]; found {
             return true
         }
-    }
-    if act == "set" {
+    case "set":
         t.Lock()
         defer t.Unlock()
 
         t.items[key] = true
         return true
-    }
-    if act == "delete" {
+    case "del":
         t.Lock()
         defer t.Unlock()
 
@@ -155,6 +157,7 @@ func (t *Blocker) Action(act, key string) bool {
             return true
         }
     }
+
     return false
 }
 
@@ -192,8 +195,10 @@ func dialTimeout(network, address string, timeout time.Duration) (int32, float32
 
 func runCommand(scmd string, timeout time.Duration) ([]byte, float32, error) {
     log.Printf("[info] running '%s'", scmd)
+
     // Start Timer
     start := time.Now()
+
     // Create a new context and add a timeout to it
     ctx, cancel := context.WithTimeout(context.Background(), timeout*time.Second)
     defer cancel() // The cancel should be deferred so resources are cleaned up
@@ -224,6 +229,79 @@ func runCommand(scmd string, timeout time.Duration) ([]byte, float32, error) {
 
     log.Printf("[info] finished '%s'", scmd)
     return out, responseTime, nil
+}
+
+func runCmdWithOutput(scmd string, timeout time.Duration) ([]byte, float32, error) {
+    log.Printf("[info] running '%s'", scmd)
+
+    // Create a new context and add a timeout to it
+    ctx, cancel := context.WithTimeout(context.Background(), timeout*time.Second)
+    defer cancel() // The cancel should be deferred so resources are cleaned up
+
+    log.Printf("[test] timeout: %v", timeout*time.Second)
+
+    // Create the command with our context
+    var cmd *exec.Cmd
+    if runtime.GOOS == "windows" {
+        cmd = exec.CommandContext(ctx, "cmd", "/C", scmd)
+    } else {
+        cmd = exec.CommandContext(ctx, "/bin/sh", "-c", scmd)
+    }
+
+    // Получаем stdout и stderr
+    stdoutPipe, err := cmd.StdoutPipe()
+    if err != nil {
+        //fmt.Println("Error obtaining stdout:", err)
+        return []byte(""), 0, err
+    }
+
+    stderrPipe, err := cmd.StderrPipe()
+    if err != nil {
+        //fmt.Println("Error obtaining stderr:", err)
+        return []byte(""), 0, err
+    }
+
+    // Запускаем команду
+    if err := cmd.Start(); err != nil {
+        //fmt.Println("Error starting command:", err)
+        return []byte(""), 0, err
+    }
+
+    // Чтение stdout в реальном времени
+    go func() {
+        scanner := bufio.NewScanner(stdoutPipe)
+        for scanner.Scan() {
+            fmt.Println("stdout:", scanner.Text())
+        }
+        //if err := scanner.Err(); err != nil {
+        //    fmt.Println("Error reading stdout:", err)
+        //}
+    }()
+
+    // Чтение stderr в реальном времени (по желанию)
+    go func() {
+        scanner := bufio.NewScanner(stderrPipe)
+        for scanner.Scan() {
+            fmt.Println("stderr:", scanner.Text())
+        }
+        //if err := scanner.Err(); err != nil {
+        //    fmt.Println("Error reading stderr:", err)
+        //}
+    }()
+
+    // Ждем завершения команды (бесконечная команда обычно не завершится)
+    err = cmd.Wait()
+    if err != nil {
+        //fmt.Println("Command finished with error:", err)
+        return []byte(""), 0, err
+    }
+
+    // Check the context error to see if the timeout was executed
+    if ctx.Err() == context.DeadlineExceeded {
+        return nil, 0, fmt.Errorf("command timed out '%s'", scmd)
+    }
+
+    return []byte(""), 0, nil
 }
 
 func newTemplate(cmd string, tags map[string]string) string {
@@ -268,13 +346,21 @@ func runTrace(cmd string, tags map[string]string, cfg client.HttpConfig, name st
         return
     }
 
-    var dt []Alert
+    //var dt []Alert
     var al Alert
 
     al.Labels = tags
     al.Labels["alertname"] = name
     al.Annotations.Description = string(out)
 
+    select {
+    case webhookChan <- al:
+        //log.Printf("[debug] len chan - %v", len(api.Collect))
+    default: 
+        // Канал переполнен, можно удалить или игнорировать
+    }
+
+    /*
     dt = append(dt, al)
 
     jsn, err := json.Marshal(dt)
@@ -286,12 +372,13 @@ func runTrace(cmd string, tags map[string]string, cfg client.HttpConfig, name st
     if err := httpClient.WriteRecords(cfg, "/api/v1/netmap/webhook", jsn); err != nil {
         log.Printf("[error] %v", err)
     }
+    */
 
     return
 }
 
 // Get connections
-func getConnections(cfg Config, hname string, debug bool) {
+func getConnections(clnt client.HttpConfig, cfg Config, hname string, debug bool) {
 
     // Set default URLs
     if len(cfg.Connections.URLs) == 0 {
@@ -317,14 +404,6 @@ func getConnections(cfg Config, hname string, debug bool) {
     cnMaxRespTime, _ := time.ParseDuration(cfg.Connections.MaxRespTime)
     if cnMaxRespTime == 0 {
         log.Fatal("[error] setting connection max_resp_time: invalid duration")
-    }
-
-    // Get connections
-    clnt := client.HttpConfig{
-        URLs: randURLs(cfg.Connections.URLs),
-        ContentEncoding: cfg.Global.ContentEncoding,
-        Username: cfg.Connections.Username,
-        Password: cfg.Connections.Password,
     }
 
     body, err := httpClient.ReadRecords(clnt, fmt.Sprintf("/api/v1/netmap/records?src_name=%s", hname))
@@ -357,11 +436,11 @@ func getConnections(cfg Config, hname string, debug bool) {
             nr.Options.Command = cfg.Connections.Command
         }
 
-        if nr.Options.Timeout == 0 {
+        if nr.Relation.Mode != "cmd" && nr.Options.Timeout == 0 {
             nr.Options.Timeout = float32(cnTimeout / time.Second)
         }
 
-        if nr.Options.MaxRespTime == 0 {
+        if nr.Relation.Mode != "cmd" && nr.Options.MaxRespTime == 0 {
             nr.Options.MaxRespTime = float32(cnMaxRespTime / time.Second)
         }
 
@@ -374,6 +453,129 @@ func getConnections(cfg Config, hname string, debug bool) {
     count := cacheRecords.DelExpiredItems(timestamp - 300)
     if debug {
         log.Printf("[debug] removed old records from cache (%d)", count)
+    }
+}
+
+// loading configuration file
+func loadConfigFile(file string, dcrpt bool) (Config, error) {
+    var cfg Config
+
+    // Loading configuration file
+    f, err := os.Open(file)
+    if err != nil {
+        return cfg, err
+    }
+    
+    if err := toml.NewDecoder(f).Decode(&cfg); err != nil {
+        return cfg, err
+    }
+    f.Close()
+ 
+    // Set default Timeout
+    if cfg.Global.Timeout == "" {
+        cfg.Global.Timeout = "5s"
+    }
+ 
+    // Set default MaxRespTime
+    if cfg.Global.MaxRespTime == "" {
+        cfg.Global.MaxRespTime = "10s"
+    }
+ 
+    // Set default Interval
+    if cfg.Global.Interval == "" {
+        cfg.Global.Interval = "60s"
+    }
+    globalInterval, _ := time.ParseDuration(cfg.Global.Interval)
+    if globalInterval == 0 {
+        log.Fatal("[error] setting global interval: invalid duration")
+    }
+ 
+    // Set Interval
+    if cfg.Connections.Interval == "" {
+        cfg.Connections.Interval = cfg.Global.Interval
+    }
+ 
+    // Decrypt password
+    if dcrpt {
+        if cfg.Netstat.Password != "" {
+            passwd, err := decrypt(cfg.Netstat.Password)
+            if err != nil {
+                return cfg, err
+            }
+            cfg.Netstat.Password = passwd
+        }
+        if cfg.Connections.Password != "" {
+            passwd, err := decrypt(cfg.Connections.Password)
+            if err != nil {
+                return cfg, err
+            }
+            cfg.Connections.Password = passwd
+        }
+    }
+
+    return cfg, nil
+}
+
+func sendStatus(clnt client.HttpConfig, cfg Config, debug bool) {
+    for {
+        var nrr netstat.NetstatData
+
+        for i := 0; i < len(statusChan); i++ {
+            rec := <-statusChan
+            nrr.Data = append(nrr.Data, rec)
+        }
+
+        if len(nrr.Data) > 0 {
+            // Create json
+            jsn, err := json.Marshal(nrr)
+            if err != nil {
+                log.Printf("[error] %v", err)
+            } else {
+                if debug {
+                    log.Printf("[debug] POST - /api/v1/netmap/status (%v)", len(nrr.Data))
+                    for _, nr := range nrr.Data {
+                        log.Printf(
+                            "[debug] status name=%s,ip=%s,port=%d,mode=%s,result=%d,response=%f,status=%s",
+                            nr.RemoteAddr.Name, nr.RemoteAddr.IP, nr.Relation.Port, nr.Relation.Mode, nr.Relation.Result, nr.Relation.Response, nr.Options.Status,
+                        )
+                    }
+                }
+                // Sending status
+                if err = httpClient.WriteRecords(clnt, "/api/v1/netmap/status", jsn); err != nil {
+                    log.Printf("[error] %v", err)
+                }
+            }
+        }
+
+        time.Sleep(15 * time.Second)
+    }
+}
+
+func sendWebhook(clnt client.HttpConfig, cfg Config, debug bool) {
+    for {
+        var dtt []Alert
+
+        for i := 0; i < len(webhookChan); i++ {
+            alt := <-webhookChan
+            dtt = append(dtt, alt)
+        }
+
+        if len(dtt) > 0 {
+            jsn, err := json.Marshal(dtt)
+            if err != nil {
+                log.Printf("[error] %v", err)
+            } else {
+                if debug {
+                    log.Printf("[debug] POST - /api/v1/netmap/webhook (%v)", len(dtt))
+                }
+                // Sending webhook
+                if err := httpClient.WriteRecords(clnt, "/api/v1/netmap/webhook", jsn); err != nil {
+                    log.Printf("[error] %v", err)
+                }
+            }
+        }
+
+        time.Sleep(15 * time.Second)
     }
 }
 
@@ -425,61 +627,28 @@ func main() {
         })
     }
 
-    // Loading configuration file
-    f, err := os.Open(*cfFile)
+    // loading configuration file
+    cfg, err := loadConfigFile(*cfFile, *decryptPass)
     if err != nil {
-        log.Fatalf("[error] %v", err)
-    }
-    var cfg Config
-    if err := toml.NewDecoder(f).Decode(&cfg); err != nil {
-        log.Fatalf("[error] %v", err)
-    }
-    f.Close()
-
-    // Set default Timeout
-    if cfg.Global.Timeout == "" {
-        cfg.Global.Timeout = "5s"
+        log.Fatalf("[error] reading config file: %v", err)
     }
 
-    // Set default MaxRespTime
-    if cfg.Global.MaxRespTime == "" {
-        cfg.Global.MaxRespTime = "10s"
+    // Channel preparation
+    statusChan = make(chan config.SockTable, 10000)
+    webhookChan = make(chan Alert, 10000)
+    clnt := client.HttpConfig{
+        URLs: randURLs(cfg.Global.URLs),
+        ContentEncoding: cfg.Global.ContentEncoding,
+        Username: cfg.Connections.Username,
+        Password: cfg.Connections.Password,
     }
-
-    // Set default Interval
-    if cfg.Global.Interval == "" {
-        cfg.Global.Interval = "60s"
-    }
-    globalInterval, _ := time.ParseDuration(cfg.Global.Interval)
-    if globalInterval == 0 {
-        log.Fatal("[error] setting global interval: invalid duration")
-    }
+    go sendStatus(clnt, cfg, *debug)
+    go sendWebhook(clnt, cfg, *debug)
 
     // Set Interval
-    if cfg.Connections.Interval == "" {
-        cfg.Connections.Interval = cfg.Global.Interval
-    }
     connectionsInterval, _ := time.ParseDuration(cfg.Connections.Interval)
     if connectionsInterval == 0 {
         log.Fatal("[error] setting connection interval: invalid duration")
-    }
-
-    //
-    if *decryptPass {
-        if cfg.Netstat.Password != "" {
-            passwd, err := decrypt(cfg.Netstat.Password)
-            if err != nil {
-                log.Fatalf("[error] %v", err)
-            }
-            cfg.Netstat.Password = passwd
-        }
-        if cfg.Connections.Password != "" {
-            passwd, err := decrypt(cfg.Connections.Password)
-            if err != nil {
-                log.Fatalf("[error] %v", err)
-            }
-            cfg.Connections.Password = passwd
-        }
     }
 
     // Get hostname
@@ -489,6 +658,7 @@ func main() {
     }
 
     run := true
+    blck := Blocker{ items: make(map[string]bool) }
 
     // Program signal processing
     c := make(chan os.Signal, 1)
@@ -514,23 +684,9 @@ func main() {
     log.Print("[info] netmap started -_-")
 
     // Сheck connections
-    go func() {
-        clnt := client.HttpConfig{
-            URLs: randURLs(cfg.Global.URLs),
-            ContentEncoding: cfg.Global.ContentEncoding,
-            Username: cfg.Connections.Username,
-            Password: cfg.Connections.Password,
-        }
-
-        blck := Blocker{
-            items: make(map[string]bool),
-        }
-
+    go func(clnt client.HttpConfig) {
         for {
-            getConnections(cfg, hname, *debug)
-
-            var wg sync.WaitGroup
-            var nrr netstat.NetstatData
+            getConnections(clnt, cfg, hname, *debug)
 
             items := cacheRecords.Items()
 
@@ -551,24 +707,13 @@ func main() {
                     continue
                 }
 
-                // New action
-                if nr.Relation.Port == 0 {
-                    if blck.Action("get", nr.Id) {
-                        continue
-                    }
-                    // Update connection status
-                    blck.Action("set", nr.Id)
-
-                    go func() {
-                        //runCommand("ping google.com", "60")
-                    }()
+                if blck.Action("get", nr.Id) {
                     continue
                 }
 
-                wg.Add(1)
-
                 go func(nr config.SockTable) {
-                    defer wg.Done()
+
+                    blck.Action("set", nr.Id)
 
                     result := int32(0)
                     response := float32(0)
@@ -585,11 +730,14 @@ func main() {
                         "status":     nr.Options.Status,
                         "account_id": fmt.Sprintf("%v", nr.Options.AccountID),
                     }
-                    timeout := time.Duration(nr.Options.Timeout) * time.Second
+                    timeout := time.Duration(nr.Options.Timeout)
 
-                    switch nr.Relation.Mode {
+                    switch  {
 
-                    case "tcp", "udp":
+                    //case nr.Relation.Port == 0:
+                    //    log.Printf("%s", "runCommand(\"ping google.com\", \"60\")")
+
+                    case nr.Relation.Mode == "tcp" || nr.Relation.Mode == "udp":
                         address := fmt.Sprintf("%v:%v", nr.RemoteAddr.IP, nr.Relation.Port)
                         result, response = dialTimeout(nr.Relation.Mode, address, timeout)
 
@@ -604,22 +752,25 @@ func main() {
                             }
                         }
 
-                    case "cmd":
+                    case nr.Relation.Mode == "cmd":
                         cmd := newTemplate(nr.Relation.Command, tags)
 
                         if cmd != "" {
-                            _, response, err = runCommand(cmd, timeout)
+                            _, response, err = runCmdWithOutput(cmd, timeout)
                             if err != nil || response >= nr.Options.MaxRespTime {
                                 result = 1
+                                /*
                                 if nr.Relation.Trace == 0 && nr.Options.Command != "" {
                                     trace = 1
                                     go runTrace(nr.Options.Command, tags, clnt, "netmapTraceroute")
                                 }
+                                */
                             }
 
                         }
 
                     default:
+                        blck.Action("del", nr.Id)
                         return
                     }
 
@@ -635,7 +786,6 @@ func main() {
                     nr.Relation.Result = result
                     nr.Relation.Response = response
                     nr.Relation.Trace = trace
-                    nrr.Data = append(nrr.Data, nr)
 
                     if *plugin == "telegraf" || *plugin == "windows" {
                         fmt.Printf(
@@ -655,44 +805,32 @@ func main() {
                     err := cacheRecords.Set(config.GetIdRec(&nr), nr, time.Now().UTC().Unix())
                     if err != nil {
                         log.Printf("[error] %v", err)
+                        return
                     }
+
+                    select {
+                    case statusChan <- nr:
+                        //log.Printf("[debug] len chan - %v", len(api.Collect))
+                    default: 
+                        // Канал переполнен, можно удалить или игнорировать
+                    }
+
+                    blck.Action("del", nr.Id)
 
                 }(nr)
-
-                wg.Wait()
-
-            }
-
-            if len(nrr.Data) > 0 {
-
-                // Create json
-                jsn, err := json.Marshal(nrr)
-                if err != nil {
-                    log.Printf("[error] %v", err)
-                } else {
-                    if *debug {
-                        log.Printf("[debug] POST - /api/v1/netmap/status (%v)", len(nrr.Data))
-                        for _, nr := range nrr.Data {
-                            log.Printf(
-                                "[debug] status name=%s,ip=%s,port=%d,mode=%s,result=%d,response=%f,status=%s",
-                                nr.RemoteAddr.Name, nr.RemoteAddr.IP, nr.Relation.Port, nr.Relation.Mode, nr.Relation.Result, nr.Relation.Response, nr.Options.Status,
-                            )
-                        }
-                    }
-                    // Sending status
-                    if err = httpClient.WriteRecords(clnt, "/api/v1/netmap/status", jsn); err != nil {
-                        log.Printf("[error] %v", err)
-                    }
-                }
             }
 
             time.Sleep(connectionsInterval)
         }
-    }()
+    }(clnt)
 
     // Netstat run cmd
     go func() {
-        // Check URLs
+
+        // Set default URLs
+        if len(cfg.Netstat.URLs) == 0 {
+            cfg.Netstat.URLs = cfg.Global.URLs
+        }
         if len(cfg.Netstat.URLs) == 0 {
             return
         }

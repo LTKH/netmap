@@ -1,15 +1,13 @@
 global:
   cert_file:      ""
   cert_key:       ""
-  users:
-    - username:     "test"
-      password:     "test"
-    - username:     "test1"
-      password:     "test1"
+  #users:
+  #  - username:     "test"
+  #    password:     "test"
+  #  - username:     "test1"
+  #    password:     "test1"
   
 db:
-  #client:         "redis"
-  #conn_string:    "localhost:6379"
   client:         "sqlite3"
   conn_string:    "/tmp/netmap.db"
   limit:          1000000
@@ -21,7 +19,7 @@ notifier:
   path:           ""
 
 collector:
-  urls:           ["http://127.0.0.1:8084"]
+  #urls:           ["http://127.0.0.1:8084"]
   path:           "/api/v1/netmap/records" 
   prepare:        true
   username:       "test"
