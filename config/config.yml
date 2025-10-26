@@ -8,11 +8,15 @@ global:
   #    password:     "test1"
 
 db:
-  client:         "sqlite3"
-  conn_string:    "/tmp/netmap.db"
+  #client:         "sqlite3"
+  #conn_string:    "/tmp/netmap.db"
+  client:         "mysql"
+  conn_string:    ""
+  name:           "netmap"
+  host:           "localhost:3306"
   limit:          1000000
-  username:       ""
-  password:       ""
+  username:       "root"
+  password:       "root"
 
 notifier:
   urls:           []

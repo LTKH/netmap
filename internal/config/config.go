@@ -100,6 +100,8 @@ type DB struct {
     HistoryDays    int                     `yaml:"history_days"`
     Limit          int                     `yaml:"limit"`
     Bucket         string                  `yaml:"bucket"`
+    Host           string                  `yaml:"host"`
+    Name           string                  `yaml:"name"`
     Username       string                  `yaml:"username"`
     Password       string                  `yaml:"password"`
 }
