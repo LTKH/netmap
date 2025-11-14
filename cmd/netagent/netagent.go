@@ -9,7 +9,7 @@ import (
     "net"
     "time"
     "flag"
-    "sync"
+    //"sync"
     "bytes"
     "bufio"
     "context"
@@ -39,11 +39,6 @@ var (
     statusChan   chan config.SockTable
     webhookChan  chan Alert
 )
-
-type Blocker struct {
-    sync.RWMutex
-    items map[string]bool
-}
 
 type Config struct {
     Global          *Global                  `toml:"global"`
@@ -131,34 +126,6 @@ func decrypt(text string) (string, error) {
     plainText := make([]byte, len(cipherText))
     cfb.XORKeyStream(plainText, cipherText)
     return string(plainText), nil
-}
-
-func (t *Blocker) Action(act, key string) bool {
-    switch act {
-    case "get":
-        t.RLock()
-        defer t.RUnlock()
-
-        if _, found := t.items[key]; found {
-            return true
-        }
-    case "set":
-        t.Lock()
-        defer t.Unlock()
-
-        t.items[key] = true
-        return true
-    case "del":
-        t.Lock()
-        defer t.Unlock()
-
-        if _, found := t.items[key]; found {
-            delete(t.items, key)
-            return true
-        }
-    }
-
-    return false
 }
 
 func randURLs(urls []string) []string {
@@ -326,7 +293,7 @@ func newTemplate(cmd string, tags map[string]string) string {
     return tpl.String()
 }
 
-func runTrace(cmd string, tags map[string]string, cfg client.HttpConfig, name string) {
+func runTrace(id, cmd, name string, tags map[string]string, cfg client.HttpConfig) {
     var tpl bytes.Buffer
 
     tmpl, err := template.New("new").Parse(cmd)
@@ -346,12 +313,16 @@ func runTrace(cmd string, tags map[string]string, cfg client.HttpConfig, name st
         return
     }
 
-    //var dt []Alert
     var al Alert
 
     al.Labels = tags
     al.Labels["alertname"] = name
     al.Annotations.Description = string(out)
+
+    _, err = cacheRecords.GetState(id)
+    if err != nil {
+        return
+    }
 
     select {
     case webhookChan <- al:
@@ -359,20 +330,6 @@ func runTrace(cmd string, tags map[string]string, cfg client.HttpConfig, name st
     default: 
         // Канал переполнен, можно удалить или игнорировать
     }
-
-    /*
-    dt = append(dt, al)
-
-    jsn, err := json.Marshal(dt)
-    if err != nil {
-        log.Printf("[error] %v", err)
-        return
-    }
-
-    if err := httpClient.WriteRecords(cfg, "/api/v1/netmap/webhook", jsn); err != nil {
-        log.Printf("[error] %v", err)
-    }
-    */
 
     return
 }
@@ -421,16 +378,9 @@ func getConnections(clnt client.HttpConfig, cfg Config, hname string, debug bool
 
     if debug {
         log.Printf("[debug] GET - /api/v1/netmap/records?src_name=%s (%v)", hname, len(nrs.Data))
-        for _, nr := range nrs.Data {
-            log.Printf(
-                "[debug] record name=%s,ip=%s,port=%d,mode=%s,result=%d,response=%f,status=%s",
-                nr.RemoteAddr.Name, nr.RemoteAddr.IP, nr.Relation.Port, nr.Relation.Mode, nr.Relation.Result, nr.Relation.Response, nr.Options.Status,
-            )
-        }
     }
 
-    timestamp := time.Now().UTC().Unix()
-
+    records := make(map[string]config.SockTable)
     for _, nr := range nrs.Data {
         if nr.Options.Command == "" {
             nr.Options.Command = cfg.Connections.Command
@@ -444,15 +394,34 @@ func getConnections(clnt client.HttpConfig, cfg Config, hname string, debug bool
             nr.Options.MaxRespTime = float32(cnMaxRespTime / time.Second)
         }
 
-        err := cacheRecords.Set(config.GetIdRec(&nr), nr, timestamp)
+        id := config.GetIdRec(&nr)
+        records[id] = nr
+
+        err := cacheRecords.Set(id, nr)
         if err != nil {
             log.Printf("[error] %v", err)
         }
+
+        if debug {
+            log.Printf(
+                "[debug] cache: set record name=%s,ip=%s,port=%d,mode=%s,result=%d,response=%f",
+                nr.RemoteAddr.Name, nr.RemoteAddr.IP, nr.Relation.Port, nr.Relation.Mode, nr.Relation.Result, nr.Relation.Response,
+            )
+        }
     }
 
-    count := cacheRecords.DelExpiredItems(timestamp - 300)
-    if debug {
-        log.Printf("[debug] removed old records from cache (%d)", count)
+    // Removing missing entries from the cache
+    items := cacheRecords.Items()
+    for _, nr := range items {
+        if _, found := records[nr.Id]; !found {
+            cacheRecords.Del(nr.Id)
+            if debug {
+                log.Printf(
+                    "[debug] cache: del record name=%s,ip=%s,port=%d,mode=%s,result=%d,response=%f",
+                    nr.RemoteAddr.Name, nr.RemoteAddr.IP, nr.Relation.Port, nr.Relation.Mode, nr.Relation.Result, nr.Relation.Response,
+                )
+            }
+        }
     }
 }
 
@@ -535,14 +504,14 @@ func sendStatus(clnt client.HttpConfig, cfg Config, debug bool) {
                     log.Printf("[debug] POST - /api/v1/netmap/status (%v)", len(nrr.Data))
                     for _, nr := range nrr.Data {
                         log.Printf(
-                            "[debug] status name=%s,ip=%s,port=%d,mode=%s,result=%d,response=%f,status=%s",
-                            nr.RemoteAddr.Name, nr.RemoteAddr.IP, nr.Relation.Port, nr.Relation.Mode, nr.Relation.Result, nr.Relation.Response, nr.Options.Status,
+                            "[debug] server: send status record name=%s,ip=%s,port=%d,mode=%s,result=%d,response=%f",
+                            nr.RemoteAddr.Name, nr.RemoteAddr.IP, nr.Relation.Port, nr.Relation.Mode, nr.Relation.Result, nr.Relation.Response,
                         )
                     }
                 }
                 // Sending status
                 if err = httpClient.WriteRecords(clnt, "/api/v1/netmap/status", jsn); err != nil {
-                    log.Printf("[error] %v", err)
+                    log.Printf("[error] %v - /api/v1/netmap/status", err)
                 }
             }
         }
@@ -570,7 +539,7 @@ func sendWebhook(clnt client.HttpConfig, cfg Config, debug bool) {
                 }
                 // Sending webhook
                 if err := httpClient.WriteRecords(clnt, "/api/v1/netmap/webhook", jsn); err != nil {
-                    log.Printf("[error] %v", err)
+                    log.Printf("[error] %v - /api/v1/netmap/webhook", err)
                 }
             }
         }
@@ -658,7 +627,6 @@ func main() {
     }
 
     run := true
-    blck := Blocker{ items: make(map[string]bool) }
 
     // Program signal processing
     c := make(chan os.Signal, 1)
@@ -694,8 +662,8 @@ func main() {
                 log.Printf("[debug] check started, records in cache (%v)", len(items))
                 for _, nr := range items {
                     log.Printf(
-                        "[debug] cache name=%s,ip=%s,port=%d,mode=%s,result=%d,response=%f,status=%s",
-                        nr.RemoteAddr.Name, nr.RemoteAddr.IP, nr.Relation.Port, nr.Relation.Mode, nr.Relation.Result, nr.Relation.Response, nr.Options.Status,
+                        "[debug] cache: read record name=%s,ip=%s,port=%d,mode=%s,result=%d,response=%f",
+                        nr.RemoteAddr.Name, nr.RemoteAddr.IP, nr.Relation.Port, nr.Relation.Mode, nr.Relation.Result, nr.Relation.Response,
                     )
                 }
             }
@@ -707,13 +675,13 @@ func main() {
                     continue
                 }
 
-                if blck.Action("get", nr.Id) {
+                if nr.State != "" {
                     continue
                 }
 
                 go func(nr config.SockTable) {
 
-                    blck.Action("set", nr.Id)
+                    cacheRecords.SetState(nr.Id, "running")
 
                     result := int32(0)
                     response := float32(0)
@@ -730,12 +698,9 @@ func main() {
                         "status":     nr.Options.Status,
                         "account_id": fmt.Sprintf("%v", nr.Options.AccountID),
                     }
-                    timeout := time.Duration(nr.Options.Timeout)
+                    timeout := time.Duration(nr.Options.Timeout) * time.Second
 
                     switch  {
-
-                    //case nr.Relation.Port == 0:
-                    //    log.Printf("%s", "runCommand(\"ping google.com\", \"60\")")
 
                     case nr.Relation.Mode == "tcp" || nr.Relation.Mode == "udp":
                         address := fmt.Sprintf("%v:%v", nr.RemoteAddr.IP, nr.Relation.Port)
@@ -744,11 +709,11 @@ func main() {
                         if result == 1 || response >= nr.Options.MaxRespTime || nr.Relation.Trace == 2 {
                             if nr.Relation.Trace == 0 && nr.Options.Command != "" {
                                 trace = 1
-                                go runTrace(nr.Options.Command, tags, clnt, "netmapTraceroute")
+                                go runTrace(nr.Id, nr.Options.Command, "netmapTraceroute", tags, clnt)
                             }
                             if nr.Relation.Trace == 2 && nr.Options.Command != "" {
                                 trace = 1
-                                go runTrace(nr.Options.Command, tags, clnt, "netmapCustomCommand")
+                                go runTrace(nr.Id, nr.Options.Command, "netmapCustomCommand", tags, clnt)
                             }
                         }
 
@@ -759,19 +724,9 @@ func main() {
                             _, response, err = runCmdWithOutput(cmd, timeout)
                             if err != nil || response >= nr.Options.MaxRespTime {
                                 result = 1
-                                /*
-                                if nr.Relation.Trace == 0 && nr.Options.Command != "" {
-                                    trace = 1
-                                    go runTrace(nr.Options.Command, tags, clnt, "netmapTraceroute")
-                                }
-                                */
                             }
-
                         }
 
-                    default:
-                        blck.Action("del", nr.Id)
-                        return
                     }
 
                     if result == 0 && response < nr.Options.MaxRespTime && nr.Relation.Trace != 2 {
@@ -802,7 +757,7 @@ func main() {
                         )
                     }
 
-                    err := cacheRecords.Set(config.GetIdRec(&nr), nr, time.Now().UTC().Unix())
+                    err := cacheRecords.Set(config.GetIdRec(&nr), nr)
                     if err != nil {
                         log.Printf("[error] %v", err)
                         return
@@ -815,7 +770,7 @@ func main() {
                         // Канал переполнен, можно удалить или игнорировать
                     }
 
-                    blck.Action("del", nr.Id)
+                    cacheRecords.SetState(nr.Id, "")
 
                 }(nr)
             }
@@ -896,18 +851,18 @@ func main() {
             nrs, err := netstat.GetSocks(ihosts, exists, options, cfg.Netstat.Incoming, *debug)
             if err != nil {
                 log.Printf("[error] %v", err)
-            } else {
-                if len(nrs.Data) > 0 {
-                    jsn, err := json.Marshal(nrs)
-                    if err != nil {
-                        log.Printf("[error] %v", err)
-                    } else {
-                        if *debug {
-                            log.Printf("[debug] POST - /api/v1/netmap/netstat (%v)", len(nrs.Data))
-                        }
-                        if err = httpClient.WriteRecords(clnt, "/api/v1/netmap/netstat", jsn); err != nil {
-                            log.Printf("[error] %v", err)
-                        }
+            }
+
+            if len(nrs.Data) > 0 {
+                jsn, err := json.Marshal(nrs)
+                if err != nil {
+                    log.Printf("[error] %v", err)
+                } else {
+                    if *debug {
+                        log.Printf("[debug] POST - /api/v1/netmap/netstat (%v)", len(nrs.Data))
+                    }
+                    if err = httpClient.WriteRecords(clnt, "/api/v1/netmap/netstat", jsn); err != nil {
+                        log.Printf("[error] %v - /api/v1/netmap/netstat", err)
                     }
                 }
             }

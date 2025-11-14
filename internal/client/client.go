@@ -93,9 +93,13 @@ func (h *HttpClient) WriteRecords(cfg HttpConfig, path string, data []byte) erro
         io.Copy(ioutil.Discard, resp.Body)
         defer resp.Body.Close()
 
-        if resp.StatusCode >= 400 {
+        if resp.StatusCode >= 500 {
             log.Printf("[error] when writing to [%s] received status code: %d", url+path, resp.StatusCode)
             continue
+        }
+
+        if resp.StatusCode >= 400 {
+            return fmt.Errorf("when writing to [%s] received status code: %d", url+path, resp.StatusCode)
         }
 
         return nil
@@ -126,29 +130,33 @@ func (h *HttpClient) ReadRecords(cfg HttpConfig, path string) ([]byte, error) {
             req.Header.Set(name, value)
         }
 
-        r, err := h.client.Do(req)
+        resp, err := h.client.Do(req)
         if err != nil {
             log.Printf("[error] %s - %v", url, err)
             continue
         }
-        defer r.Body.Close()
+        defer resp.Body.Close()
 
         // Check that the server actual sent compressed data
-        switch r.Header.Get("Content-Encoding") {
+        switch resp.Header.Get("Content-Encoding") {
             case "gzip":
-                reader, err = gzip.NewReader(r.Body)
+                reader, err = gzip.NewReader(resp.Body)
                 if err != nil {
                     log.Printf("[error] %s - %v", url, err)
                     continue
                 }
                 defer reader.Close()
             default:
-                reader = r.Body
+                reader = resp.Body
         }
 
-        if r.StatusCode >= 400 {
-            log.Printf("[error] when reading to [%s] received status code: %d", url+path, r.StatusCode)
+        if resp.StatusCode >= 500 {
+            log.Printf("[error] when reading to [%s] received status code: %d", url+path, resp.StatusCode)
             continue
+        }
+
+        if resp.StatusCode >= 400 {
+            return nil, fmt.Errorf("when reading to [%s] received status code: %d", url+path, resp.StatusCode)
         }
 
         body, err := ioutil.ReadAll(reader)
@@ -208,9 +216,13 @@ func (h *HttpClient) DelRecords(cfg HttpConfig, path string, data []byte) error 
         io.Copy(ioutil.Discard, resp.Body)
         defer resp.Body.Close()
 
-        if resp.StatusCode >= 400 {
+        if resp.StatusCode >= 500 {
             log.Printf("[error] when writing to [%s] received status code: %d", url+path, resp.StatusCode)
             continue
+        }
+
+        if resp.StatusCode >= 400 {
+            return fmt.Errorf("when writing to [%s] received status code: %d", url+path, resp.StatusCode)
         }
 
         return nil

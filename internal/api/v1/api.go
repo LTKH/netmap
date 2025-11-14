@@ -511,40 +511,40 @@ func (api *Api) ApiRecords(w http.ResponseWriter, r *http.Request) {
             if rc.Timestamp == 0 {
                 rc.Timestamp = time.Now().UTC().Unix()
             }
+            jsonRC, err := json.Marshal(rc)
+            if err != nil {
+                log.Printf("[error] marshaling to JSON:", err)
+                continue
+            }
+            //log.Printf("%v", string(jsonRC))
             if rc.LocalAddr.Name == "" {
-                w.WriteHeader(400)
-                w.Write(encodeResp(&Resp{Status:"error", Error:"parameter missing localAddr.name"}))
-                return
+                log.Printf("[warn] %s: parameter missing localAddr.name", string(jsonRC))
+                continue
             }
             if rc.LocalAddr.IP == "" {
-                w.WriteHeader(400)
-                w.Write(encodeResp(&Resp{Status:"error", Error:"parameter missing LocalAddr.ip"}))
-                return
+                log.Printf("[warn] %s: parameter missing LocalAddr.ip", string(jsonRC))
+                continue
             }
             if rc.RemoteAddr.Name == "" {
-                w.WriteHeader(400)
-                w.Write(encodeResp(&Resp{Status:"error", Error:"parameter missing remoteAddr.name"}))
-                return
+                log.Printf("[warn] %s: parameter missing remoteAddr.name", string(jsonRC))
+                continue
             }
             if rc.RemoteAddr.IP == "" {
-                w.WriteHeader(400)
-                w.Write(encodeResp(&Resp{Status:"error", Error:"parameter missing remoteAddr.ip"}))
-                return
+                log.Printf("[warn] %s: parameter missing remoteAddr.ip", string(jsonRC))
+                continue
             }
             if rc.Relation.Mode != "cmd" && rc.Relation.Port == 0 {
-                w.WriteHeader(400)
-                w.Write(encodeResp(&Resp{Status:"error", Error:"parameter missing relation.port"}))
-                return
+                log.Printf("[warn] %s: parameter missing relation.port", string(jsonRC))
+                continue
             }
             if rc.Relation.Mode == "" {
-                w.WriteHeader(400)
-                w.Write(encodeResp(&Resp{Status:"error", Error:"parameter missing relation.mode"}))
-                return
+                log.Printf("[warn] %s: parameter missing relation.mode", string(jsonRC))
+                continue
             }
 
             if err := db.DbClient.SaveRecord(*api.DB, rc); err != nil {
+                log.Printf("[error] %v - %s", err.Error(), r.URL.Path)
                 w.WriteHeader(500)
-                w.Write(encodeResp(&Resp{Status:"error", Error:err.Error()}))
                 return
             }
 

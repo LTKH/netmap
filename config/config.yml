@@ -1,30 +1,30 @@
 global:
   cert_file:      ""
   cert_key:       ""
-  #users:
-  #  - username:     "test"
-  #    password:     "test"
+  users:
+    - username:     "test"
+      password:     "test"
   #  - username:     "test1"
   #    password:     "test1"
 
 db:
-  #client:         "sqlite3"
-  #conn_string:    "/tmp/netmap.db"
-  client:         "mysql"
-  conn_string:    ""
-  name:           "netmap"
-  host:           "localhost:3306"
+  client:         "sqlite3"
+  conn_string:    "/tmp/netmap.db"
+  #client:         "mysql"
+  #conn_string:    ""
+  #name:           "netmap"
+  #host:           "localhost:3306"
   limit:          1000000
-  username:       "root"
-  password:       "root"
+  #username:       "root"
+  #password:       "root"
+
+collector:
+  urls:           ["http://127.0.0.1:8084"]
+  path:           "/api/v1/netmap/records" 
+  prepare:        true
+  username:       "test"
+  password:       "test"
 
 notifier:
   urls:           []
   path:           ""
-
-collector:
-  #urls:           ["http://127.0.0.1:8084"]
-  path:           "/api/v1/netmap/records" 
-  prepare:        true
-  #username:       "test"
-  #password:       "test"

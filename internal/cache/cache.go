@@ -32,18 +32,47 @@ func NewCacheRecords(limit int) *Records {
     return &cache
 }
 
-func (t *Records) Set(key string, val config.SockTable, timestamp int64) error {
+func (t *Records) Set(key string, val config.SockTable) error {
     t.Lock()
     defer t.Unlock()
 
-    _, found := t.items[key]
-    if !found && len(t.items) >= t.limit {
+    item, found := t.items[key]
+    if found {
+        val.State = item.State
+    } else if len(t.items) >= t.limit {
         return fmt.Errorf("cache limit exceeded, id: %v", key)
     }
 
     val.Id = key
-    val.Timestamp = timestamp
+    val.Timestamp = time.Now().UTC().Unix()
     t.items[key] = val
+
+    return nil
+}
+
+func (t *Records) GetState(key string) (string, error) {
+    t.RLock()
+    defer t.RUnlock()
+
+    item, found := t.items[key]
+    if !found {
+        return "", fmt.Errorf("object not found, id: %v", key)
+    }
+
+    return item.State, nil
+}
+
+func (t *Records) SetState(key string, val string) error {
+    t.Lock()
+    defer t.Unlock()
+
+    item, found := t.items[key]
+    if !found {
+        return fmt.Errorf("object not found, id: %v", key)
+    }
+
+    item.State = val
+    t.items[key] = item
 
     return nil
 }

@@ -39,6 +39,7 @@ type Exception struct {
 // SockTable type represents each line of the /cmd/[tcp|udp]
 type SockTable struct {
     Id             string                  `json:"id,omitempty"`
+    State          string                  `json:"-"`
     Timestamp      int64                   `json:"timestamp,omitempty"`
     LocalAddr      SockAddr                `json:"localAddr"`
     RemoteAddr     SockAddr                `json:"remoteAddr"`

@@ -39,7 +39,7 @@ func main() {
     logMaxSize      := flag.Int("log.max-size", getEnvInt("NETSERVER_LOG_MAX_SIZE", 1), "log max size")
     logMaxBackups   := flag.Int("log.max-backups", getEnvInt("NETSERVER_LOG_MAX_BACKUPS", 3), "log max backups")
     logMaxAge       := flag.Int("log.max-age", getEnvInt("NETSERVER_LOG_MAX_AGE", 10), "log max age")
-    logCompress     := flag.Bool("log.compress", getEnvBool("NETSERVER_LOG_COMPRESS", true), "log compress")
+    logCompress     := flag.Bool("log.compress", getEnvBool("NETSERVER_LOG_COMPRE SS", true), "log compress")
     logHTTPRequests := flag.Bool("log.http-requests", getEnvBool("NETSERVER_LOG_HTTP_REQUESTS", false), "enable HTTP request logging")
     version         := flag.Bool("version", false, "show netserver version")
     debug           := flag.Bool("debug", false, "debug mode")
