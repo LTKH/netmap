@@ -2,8 +2,8 @@ global:
   cert_file:      ""
   cert_key:       ""
   users:
-    - username:     "test"
-      password:     "test"
+  #  - username:     "test"
+  #    password:     "test"
   #  - username:     "test1"
   #    password:     "test1"
 
@@ -19,12 +19,12 @@ db:
   #password:       "root"
 
 collector:
-  urls:           ["http://127.0.0.1:8084"]
-  path:           "/api/v1/netmap/records" 
+  urls:           []
+  path:           "/api/v1/netmap/records"
   prepare:        true
   username:       "test"
   password:       "test"
 
 notifier:
-  urls:           []
-  path:           ""
+  urls:           ["http://127.0.0.1:8086"]
+  path:           "/api/v1/netmap/webhook"

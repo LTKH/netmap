@@ -89,24 +89,25 @@ func main() {
     grpcServer := grpc.NewServer()
     pb.RegisterEventServiceServer(grpcServer, srvV1)
 
+    // Creating a port for gRPC
+    lis, err := net.Listen("tcp", *prAddress)
+    if err != nil {
+        log.Fatalf("[error] failed to listen: %v", err)
+    }
+
+    go func() {
+        if err := grpcServer.Serve(lis); err != nil {
+            log.Fatalf("[error] failed to serve: %v", err)
+        }
+    }()
+
     // Creating API
     apiV1, err := v1.NewAPI(*debug, cfg, peers, clientDB, srvV1)
     if err != nil {
         log.Fatalf("[error] %v", err)
     }
 
-    go func() {
-        lis, err := net.Listen("tcp", *prAddress)
-        if err != nil {
-            log.Fatalf("[error] failed to listen: %v", err)
-        }
-
-        if err := grpcServer.Serve(lis); err != nil {
-            log.Fatalf("[error] failed to serve: %v", err)
-        }
-    }()
-
-    // Enable logging middleware only if logHTTPRequests is enabled
+    // Defining API paths
     mux := http.NewServeMux()
     mux.HandleFunc("/-/healthy", apiV1.ApiHealthy)
     mux.HandleFunc("/api/v1/netmap/status", apiV1.ApiStatus)
@@ -117,11 +118,13 @@ func main() {
     mux.HandleFunc("/api/v1/netmap/exceptions", apiV1.ApiExceptions)
     mux.Handle("/metrics", promhttp.Handler())
 
+    // Enable logging middleware only if logHTTPRequests is enabled
     var handler http.Handler = mux
     if *logHTTPRequests {
         handler = loggingMiddleware(mux)
     }
 
+    // Creating a port for API
     go func(cfg *config.Global) {
         if cfg.CertFile != "" && cfg.CertKey != "" {
             if err := http.ListenAndServeTLS(*clAddress, cfg.CertFile, cfg.CertKey, handler); err != nil {
@@ -141,6 +144,7 @@ func main() {
     signal.Notify(c, os.Interrupt, syscall.SIGTERM)
     for {
         <-c
+        grpcServer.Stop()
         log.Print("[info] netserver stopped")
         os.Exit(0)
     }

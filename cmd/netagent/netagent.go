@@ -18,6 +18,7 @@ import (
     "crypto/cipher"
     "runtime"
     "syscall"
+    "strings"
     "text/template"
     "encoding/json"
     "encoding/base64"
@@ -37,7 +38,7 @@ var (
     Version      = "unknown"
     KeyString    = "khuyg743878g8s2:b970m-z0"
     statusChan   chan config.SockTable
-    webhookChan  chan Alert
+    webhookChan  chan Output
 )
 
 type Config struct {
@@ -49,6 +50,8 @@ type Config struct {
 type Global struct {
     URLs            []string                 `toml:"urls"`
     ContentEncoding string                   `toml:"content_encoding"`
+    Username         string                  `toml:"username"`
+    Password         string                  `toml:"password"`
     Interval        string                   `toml:"interval"`
     Timeout         string                   `toml:"timeout"`
     MaxRespTime     string                   `toml:"max_resp_time"`
@@ -70,6 +73,7 @@ type Netstat struct {
 
 type Connection struct {
     URLs             []string                `toml:"urls"`
+    Path             string                  `toml:"path"`
     ContentEncoding  string                  `toml:"content_encoding"`
     Command          string                  `toml:"command"`
     Interval         string                  `toml:"interval"`
@@ -83,6 +87,12 @@ type NetResponse struct {
     Address          string                  `json:"address"`
     Timeout          time.Duration           `json:"timeout"`
     Protocol         string                  `json:"protocol"`
+}
+
+type Output struct {
+    Id               string
+    Stdout           string
+    Stderr           string
 }
 
 type Alert struct {
@@ -126,6 +136,15 @@ func decrypt(text string) (string, error) {
     plainText := make([]byte, len(cipherText))
     cfb.XORKeyStream(plainText, cipherText)
     return string(plainText), nil
+}
+
+func getHostname() string {
+    // Get hostname
+    hname, err := netstat.Hostname()
+    if err != nil {
+        return "unknown"
+    }
+    return hname
 }
 
 func randURLs(urls []string) []string {
@@ -198,14 +217,19 @@ func runCommand(scmd string, timeout time.Duration) ([]byte, float32, error) {
     return out, responseTime, nil
 }
 
-func runCmdWithOutput(scmd string, timeout time.Duration) ([]byte, float32, error) {
+func runCmdWithOutput(id, scmd string, timeout time.Duration, debug bool) (float32, error) {
+    //if timeout == 0 { timeout = 3600 }
+    if timeout == 0 { timeout = 50 }
+    
+    if _, err := cacheRecords.GetState(id); err != nil {
+        return 0, err
+    }
+
     log.Printf("[info] running '%s'", scmd)
 
     // Create a new context and add a timeout to it
     ctx, cancel := context.WithTimeout(context.Background(), timeout*time.Second)
     defer cancel() // The cancel should be deferred so resources are cleaned up
-
-    log.Printf("[test] timeout: %v", timeout*time.Second)
 
     // Create the command with our context
     var cmd *exec.Cmd
@@ -215,60 +239,67 @@ func runCmdWithOutput(scmd string, timeout time.Duration) ([]byte, float32, erro
         cmd = exec.CommandContext(ctx, "/bin/sh", "-c", scmd)
     }
 
-    // Получаем stdout и stderr
+    // Получаем stdout
     stdoutPipe, err := cmd.StdoutPipe()
     if err != nil {
         //fmt.Println("Error obtaining stdout:", err)
-        return []byte(""), 0, err
+        return 0, err
     }
 
-    stderrPipe, err := cmd.StderrPipe()
-    if err != nil {
-        //fmt.Println("Error obtaining stderr:", err)
-        return []byte(""), 0, err
-    }
+    // Получаем stderr
+    //stderrPipe, err := cmd.StderrPipe()
+    //if err != nil {
+    //    //fmt.Println("Error obtaining stderr:", err)
+    //    return 0, err
+    //}
 
     // Запускаем команду
     if err := cmd.Start(); err != nil {
         //fmt.Println("Error starting command:", err)
-        return []byte(""), 0, err
+        return 0, err
     }
 
     // Чтение stdout в реальном времени
     go func() {
         scanner := bufio.NewScanner(stdoutPipe)
         for scanner.Scan() {
-            fmt.Println("stdout:", scanner.Text())
+            if debug {
+                log.Printf("[debug] stdout: %v", scanner.Text())
+            }
+
+            output := Output{
+                Id: id,
+                Stdout: scanner.Text(),
+            }
+
+            select {
+            case webhookChan <- output:
+                //log.Printf("[debug] len chan - %v", len(api.Collect))
+            default: 
+                // Канал переполнен, можно удалить или игнорировать
+            }
         }
-        //if err := scanner.Err(); err != nil {
-        //    fmt.Println("Error reading stdout:", err)
-        //}
     }()
 
     // Чтение stderr в реальном времени (по желанию)
-    go func() {
-        scanner := bufio.NewScanner(stderrPipe)
-        for scanner.Scan() {
-            fmt.Println("stderr:", scanner.Text())
-        }
-        //if err := scanner.Err(); err != nil {
-        //    fmt.Println("Error reading stderr:", err)
-        //}
-    }()
+    //go func() {
+    //    scanner := bufio.NewScanner(stderrPipe)
+    //    for scanner.Scan() {
+    //        fmt.Println("stderr:", scanner.Text())
+    //    }
+    //}()
 
-    // Ждем завершения команды (бесконечная команда обычно не завершится)
+    // Ждем завершения команды
     err = cmd.Wait()
     if err != nil {
-        //fmt.Println("Command finished with error:", err)
-        return []byte(""), 0, err
+        log.Printf("[info] finished '%s'", scmd)
+        if ctx.Err() == context.DeadlineExceeded {
+            runCmdWithOutput(id, scmd, timeout, debug)
+        }
+        return 0, err
     }
 
-    // Check the context error to see if the timeout was executed
-    if ctx.Err() == context.DeadlineExceeded {
-        return nil, 0, fmt.Errorf("command timed out '%s'", scmd)
-    }
-
-    return []byte(""), 0, nil
+    return 0, nil
 }
 
 func newTemplate(cmd string, tags map[string]string) string {
@@ -313,19 +344,13 @@ func runTrace(id, cmd, name string, tags map[string]string, cfg client.HttpConfi
         return
     }
 
-    var al Alert
-
-    al.Labels = tags
-    al.Labels["alertname"] = name
-    al.Annotations.Description = string(out)
-
-    _, err = cacheRecords.GetState(id)
-    if err != nil {
-        return
+    output := Output{
+        Id: id,
+        Stdout: string(out),
     }
 
     select {
-    case webhookChan <- al:
+    case webhookChan <- output:
         //log.Printf("[debug] len chan - %v", len(api.Collect))
     default: 
         // Канал переполнен, можно удалить или игнорировать
@@ -337,12 +362,14 @@ func runTrace(id, cmd, name string, tags map[string]string, cfg client.HttpConfi
 // Get connections
 func getConnections(clnt client.HttpConfig, cfg Config, hname string, debug bool) {
 
-    // Set default URLs
-    if len(cfg.Connections.URLs) == 0 {
-        cfg.Connections.URLs = cfg.Global.URLs
-    }
     if len(cfg.Connections.URLs) == 0 {
         return
+    }
+    if cfg.Connections.Path == "" {
+        cfg.Connections.Path = fmt.Sprintf("/api/v1/netmap/records?src_name=%s", hname)
+    } else {
+        tags := map[string]string{"hostname": getHostname()}
+        cfg.Connections.Path = newTemplate(cfg.Connections.Path, tags)
     }
 
     // Set Timeout
@@ -363,21 +390,21 @@ func getConnections(clnt client.HttpConfig, cfg Config, hname string, debug bool
         log.Fatal("[error] setting connection max_resp_time: invalid duration")
     }
 
-    body, err := httpClient.ReadRecords(clnt, fmt.Sprintf("/api/v1/netmap/records?src_name=%s", hname))
+    body, err := httpClient.ReadRecords(clnt, cfg.Connections.Path)
     if err != nil {
-        log.Printf("[error] %v - /api/v1/netmap/records?src_name=%s", err, hname)
+        log.Printf("[error] %v - %s", err, cfg.Connections.Path)
         return
     }
 
     var nrs netstat.NetstatData
     err = json.Unmarshal(body, &nrs)
     if err != nil {
-        log.Printf("[error] %v - /api/v1/netmap/records?src_name=%s", err, hname)
+        log.Printf("[error] %v - %s", err, cfg.Connections.Path)
         return
     }
 
     if debug {
-        log.Printf("[debug] GET - /api/v1/netmap/records?src_name=%s (%v)", hname, len(nrs.Data))
+        log.Printf("[debug] GET - %s (%v)", cfg.Connections.Path, len(nrs.Data))
     }
 
     records := make(map[string]config.SockTable)
@@ -486,65 +513,105 @@ func loadConfigFile(file string, dcrpt bool) (Config, error) {
 }
 
 func sendStatus(clnt client.HttpConfig, cfg Config, debug bool) {
+    nrr := netstat.NetstatData{}
+    timeout := 15 * time.Second
+    timer := time.NewTimer(timeout)
+
     for {
-        var nrr netstat.NetstatData
-
-        for i := 0; i < len(statusChan); i++ {
-            rec := <-statusChan
-            nrr.Data = append(nrr.Data, rec)
-        }
-
-        if len(nrr.Data) > 0 {
-            // Create json
-            jsn, err := json.Marshal(nrr)
-            if err != nil {
-                log.Printf("[error] %v", err)
-            } else {
-                if debug {
-                    log.Printf("[debug] POST - /api/v1/netmap/status (%v)", len(nrr.Data))
-                    for _, nr := range nrr.Data {
-                        log.Printf(
-                            "[debug] server: send status record name=%s,ip=%s,port=%d,mode=%s,result=%d,response=%f",
-                            nr.RemoteAddr.Name, nr.RemoteAddr.IP, nr.Relation.Port, nr.Relation.Mode, nr.Relation.Result, nr.Relation.Response,
-                        )
+        select {
+        case item, _ := <-statusChan:
+            // Добавляем элемент в текущую пачку
+            nrr.Data = append(nrr.Data, item)
+        case <-timer.C:
+            // Сработал таймаут: отправляем пачку
+            if len(nrr.Data) > 0 {
+                // Create json
+                jsn, err := json.Marshal(nrr)
+                if err != nil {
+                    log.Printf("[error] %v", err)
+                } else {
+                    if debug {
+                        log.Printf("[debug] POST - /api/v1/netmap/status (%v)", len(nrr.Data))
+                        for _, nr := range nrr.Data {
+                            log.Printf(
+                                "[debug] server: send status record name=%s,ip=%s,port=%d,mode=%s,result=%d,response=%f",
+                                nr.RemoteAddr.Name, nr.RemoteAddr.IP, nr.Relation.Port, nr.Relation.Mode, nr.Relation.Result, nr.Relation.Response,
+                            )
+                        }
+                    }
+                    // Sending status
+                    if err = httpClient.WriteRecords(clnt, "/api/v1/netmap/status", jsn); err != nil {
+                        log.Printf("[error] %v - /api/v1/netmap/status", err)
                     }
                 }
-                // Sending status
-                if err = httpClient.WriteRecords(clnt, "/api/v1/netmap/status", jsn); err != nil {
-                    log.Printf("[error] %v - /api/v1/netmap/status", err)
-                }
-            }
-        }
 
-        time.Sleep(15 * time.Second)
+                nrr = netstat.NetstatData{} // Сбрасываем пачку
+            }
+            timer.Reset(timeout) // Сбрасываем таймер для следующего интервала
+        }
     }
 }
 
 func sendWebhook(clnt client.HttpConfig, cfg Config, debug bool) {
+    mlt := map[string]Alert{}
+    timeout := 15 * time.Second
+    timer := time.NewTimer(timeout)
+    
     for {
-        var dtt []Alert
+        select {
+        case item, _ := <-webhookChan:
+            // Добавляем элемент в текущую пачку
+            alt, ok := mlt[item.Id]
+            if !ok {
+                alt = Alert{}
 
-        for i := 0; i < len(webhookChan); i++ {
-            alt := <-webhookChan
-            dtt = append(dtt, alt)
-        }
+                rec, ok := cacheRecords.Get(item.Id)
+                if !ok { continue }
 
-        if len(dtt) > 0 {
-            jsn, err := json.Marshal(dtt)
-            if err != nil {
-                log.Printf("[error] %v", err)
+                alt.Labels = map[string]string{
+                    "src_name":   rec.LocalAddr.Name,
+                    "src_ip":     rec.LocalAddr.IP,
+                    "dst_name":   rec.RemoteAddr.Name,
+                    "dst_ip":     rec.RemoteAddr.IP,
+                    "port":       fmt.Sprintf("%v", rec.Relation.Port),
+                    "mode":       rec.Relation.Mode,
+                    "service":    rec.Options.Service,
+                    "status":     rec.Options.Status,
+                    "account_id": fmt.Sprintf("%v", rec.Options.AccountID),
+                }
+
+                alt.Annotations.Description = item.Stdout
             } else {
-                if debug {
-                    log.Printf("[debug] POST - /api/v1/netmap/webhook (%v)", len(dtt))
-                }
-                // Sending webhook
-                if err := httpClient.WriteRecords(clnt, "/api/v1/netmap/webhook", jsn); err != nil {
-                    log.Printf("[error] %v - /api/v1/netmap/webhook", err)
-                }
+                alt.Annotations.Description = strings.Join([]string{alt.Annotations.Description, item.Stdout}, "\n")
             }
-        }
+            
+            mlt[item.Id] = alt
+        case <-timer.C:
+            // Сработал таймаут: отправляем пачку
+            if len(mlt) > 0 {
+                var dtt []Alert
 
-        time.Sleep(15 * time.Second)
+                for _, ml := range mlt {
+                    dtt = append(dtt, ml)
+                }
+
+                jsn, err := json.Marshal(dtt)
+                if err != nil {
+                    log.Printf("[error] %v", err)
+                } else {
+                    if debug {
+                        log.Printf("[debug] POST - /api/v1/netmap/webhook (%v)", len(dtt))
+                    }
+                    // Sending webhook
+                    if err := httpClient.WriteRecords(clnt, "/api/v1/netmap/webhook", jsn); err != nil {
+                        log.Printf("[error] %v - /api/v1/netmap/webhook", err)
+                    }
+                }
+                
+                mlt = map[string]Alert{} // Сбрасываем пачку
+            }
+            timer.Reset(timeout) // Сбрасываем таймер для следующего интервала
+        }
     }
 }
 
@@ -602,12 +669,25 @@ func main() {
         log.Fatalf("[error] reading config file: %v", err)
     }
 
+    if len(cfg.Connections.URLs) == 0 {
+        cfg.Connections.URLs = cfg.Global.URLs
+    }
+    if cfg.Connections.ContentEncoding == "" {
+        cfg.Connections.ContentEncoding = cfg.Global.ContentEncoding
+    }
+    if cfg.Connections.Username == "" {
+        cfg.Connections.Username = cfg.Global.Username
+    }
+    if cfg.Connections.Password == "" {
+        cfg.Connections.Password = cfg.Global.Password
+    }
+
     // Channel preparation
     statusChan = make(chan config.SockTable, 10000)
-    webhookChan = make(chan Alert, 10000)
+    webhookChan = make(chan Output, 10000)
     clnt := client.HttpConfig{
-        URLs: randURLs(cfg.Global.URLs),
-        ContentEncoding: cfg.Global.ContentEncoding,
+        URLs: randURLs(cfg.Connections.URLs),
+        ContentEncoding: cfg.Connections.ContentEncoding,
         Username: cfg.Connections.Username,
         Password: cfg.Connections.Password,
     }
@@ -618,12 +698,6 @@ func main() {
     connectionsInterval, _ := time.ParseDuration(cfg.Connections.Interval)
     if connectionsInterval == 0 {
         log.Fatal("[error] setting connection interval: invalid duration")
-    }
-
-    // Get hostname
-    hname, err := netstat.Hostname()
-    if err != nil {
-        log.Fatalf("[error] %v", err)
     }
 
     run := true
@@ -654,7 +728,7 @@ func main() {
     // Сheck connections
     go func(clnt client.HttpConfig) {
         for {
-            getConnections(clnt, cfg, hname, *debug)
+            getConnections(clnt, cfg, getHostname(), *debug)
 
             items := cacheRecords.Items()
 
@@ -721,9 +795,18 @@ func main() {
                         cmd := newTemplate(nr.Relation.Command, tags)
 
                         if cmd != "" {
-                            _, response, err = runCmdWithOutput(cmd, timeout)
+                            response, err = runCmdWithOutput(nr.Id, cmd, timeout, *debug)
                             if err != nil || response >= nr.Options.MaxRespTime {
                                 result = 1
+                            }
+                            if nr.Relation.Type == "drop" {
+                                if *debug {
+                                    log.Printf("[debug] DELETE - /api/v1/netmap/records (%v)", nr.Id)
+                                }
+                                if err = httpClient.DelRecords(clnt, "/api/v1/netmap/records", []byte("[\""+nr.Id+"\"]")); err != nil {
+                                    log.Printf("[error] %v - /api/v1/netmap/records", err)
+                                }
+                                return
                             }
                         }
 

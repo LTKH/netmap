@@ -1,0 +1,8 @@
+curl -XPOST 'http://localhost:8084/api/v1/netmap/records' -d '{"data":[{"localAddr":{"ip":"192.168.64.30","name":"ubuntu-test"},"remoteAddr":{"ip":"192.168.0.52","name":"192.168.0.52"},"relation":{"mode":"tcp","type":"","port":8080}}]}' -vv
+curl -XPOST 'http://localhost:8084/api/v1/netmap/records' -d '{"data":[{"localAddr":{"ip":"192.168.64.31","name":"ubuntu-test1"},"remoteAddr":{"ip":"192.168.0.52","name":"192.168.0.52"},"relation":{"mode":"tcp","type":"","port":8080}}]}' -vv
+curl 'http://localhost:8084/api/v1/netmap/records?src_name=ubuntu-test'
+curl 'http://localhost:8084/api/v1/netmap/records?src_name=ubuntu-test1'
+curl -XDELETE 'http://localhost:8084/api/v1/netmap/records' -d '["6914731f1c2d42123274dca121e59f186ab709b5"]' -vv
+
+curl -XPOST 'http://localhost:8084/api/v1/netmap/records' -d '{"data":[{"localAddr":{"ip":"192.168.64.30","name":"ubuntu-test"},"remoteAddr":{"ip":"192.168.64.30","name":"ubuntu-test"},"relation":{"mode":"cmd","type":"drop","command":"ping -c 5 192.168.64.30","port":0}}]}' -vv
+curl -XPOST 'http://localhost:8084/api/v1/netmap/records' -d '{"data":[{"localAddr":{"ip":"192.168.64.30","name":"ubuntu-test"},"remoteAddr":{"ip":"192.168.0.52","name":"192.168.0.52"},"relation":{"mode":"cmd","command":"ping 192.168.0.52","port":0}}]}' -vv
