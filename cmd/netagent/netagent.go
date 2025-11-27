@@ -9,7 +9,7 @@ import (
     "net"
     "time"
     "flag"
-    //"sync"
+    "sync"
     "bytes"
     "bufio"
     "context"
@@ -213,13 +213,11 @@ func runCommand(scmd string, timeout time.Duration) ([]byte, float32, error) {
         return nil, responseTime, fmt.Errorf("non-zero exit code: %v '%s'", err, scmd)
     }
 
-    log.Printf("[info] finished '%s'", scmd)
     return out, responseTime, nil
 }
 
-func runCmdWithOutput(id, scmd string, timeout time.Duration, debug bool) (float32, error) {
-    //if timeout == 0 { timeout = 3600 }
-    if timeout == 0 { timeout = 50 }
+func runCmdWithOutput(id, scmd string, timeout time.Duration, debug bool) (int32, error) {
+    if timeout == 0 { timeout = 3600 }
     
     if _, err := cacheRecords.GetState(id); err != nil {
         return 0, err
@@ -247,22 +245,25 @@ func runCmdWithOutput(id, scmd string, timeout time.Duration, debug bool) (float
     }
 
     // Получаем stderr
-    //stderrPipe, err := cmd.StderrPipe()
-    //if err != nil {
-    //    //fmt.Println("Error obtaining stderr:", err)
-    //    return 0, err
-    //}
-
-    // Запускаем команду
-    if err := cmd.Start(); err != nil {
-        //fmt.Println("Error starting command:", err)
+    stderrPipe, err := cmd.StderrPipe()
+    if err != nil {
+        fmt.Println("Error obtaining stderr:", err)
         return 0, err
     }
 
+    var wg sync.WaitGroup
+    wg.Add(2)
+    var stderrBuffer bytes.Buffer // Буфер для сбора STDERR
+
     // Чтение stdout в реальном времени
     go func() {
+        defer wg.Done()
         scanner := bufio.NewScanner(stdoutPipe)
         for scanner.Scan() {
+            if _, err := cacheRecords.GetState(id); err != nil {
+                return
+            }
+
             if debug {
                 log.Printf("[debug] stdout: %v", scanner.Text())
             }
@@ -274,29 +275,45 @@ func runCmdWithOutput(id, scmd string, timeout time.Duration, debug bool) (float
 
             select {
             case webhookChan <- output:
-                //log.Printf("[debug] len chan - %v", len(api.Collect))
+                //log.Printf("[debug] len chan - %v", len(webhookChan))
             default: 
                 // Канал переполнен, можно удалить или игнорировать
             }
         }
     }()
 
-    // Чтение stderr в реальном времени (по желанию)
-    //go func() {
-    //    scanner := bufio.NewScanner(stderrPipe)
-    //    for scanner.Scan() {
-    //        fmt.Println("stderr:", scanner.Text())
-    //    }
-    //}()
+    // Чтение stderr в реальном времени
+    go func() {
+        defer wg.Done()
+        scanner := bufio.NewScanner(stderrPipe)
+        for scanner.Scan() {
+            line := scanner.Text()
+            stderrBuffer.WriteString(line + "\n")
+        }
+    }()
+
+    // Запускаем команду
+    if err := cmd.Start(); err != nil {
+        wg.Wait()
+        return 0, err
+    }
 
     // Ждем завершения команды
     err = cmd.Wait()
+    
+    // Ждем завершения чтения обоих пайпов
+    wg.Wait()
+
+    if stderrBuffer.Len() > 0 {
+        return 1, fmt.Errorf("%v", stderrBuffer.String())
+    }
+    
+    // Ждем завершения команды
     if err != nil {
-        log.Printf("[info] finished '%s'", scmd)
         if ctx.Err() == context.DeadlineExceeded {
-            runCmdWithOutput(id, scmd, timeout, debug)
+            return 2, nil
         }
-        return 0, err
+        return 1, err
     }
 
     return 0, nil
@@ -493,6 +510,13 @@ func loadConfigFile(file string, dcrpt bool) (Config, error) {
  
     // Decrypt password
     if dcrpt {
+        if cfg.Global.Password != "" {
+            passwd, err := decrypt(cfg.Global.Password)
+            if err != nil {
+                return cfg, err
+            }
+            cfg.Global.Password = passwd
+        }
         if cfg.Netstat.Password != "" {
             passwd, err := decrypt(cfg.Netstat.Password)
             if err != nil {
@@ -601,6 +625,12 @@ func sendWebhook(clnt client.HttpConfig, cfg Config, debug bool) {
                 } else {
                     if debug {
                         log.Printf("[debug] POST - /api/v1/netmap/webhook (%v)", len(dtt))
+                        for _, dt := range dtt {
+                            log.Printf(
+                                "[debug] server: send webhook record name=%s,ip=%s,mode=%s,lines=%d",
+                                dt.Labels["dst_name"], dt.Labels["dst_ip"], dt.Labels["mode"], len(strings.Split(dt.Annotations.Description, "\n")),
+                            )
+                        }
                     }
                     // Sending webhook
                     if err := httpClient.WriteRecords(clnt, "/api/v1/netmap/webhook", jsn); err != nil {
@@ -780,7 +810,7 @@ func main() {
                         address := fmt.Sprintf("%v:%v", nr.RemoteAddr.IP, nr.Relation.Port)
                         result, response = dialTimeout(nr.Relation.Mode, address, timeout)
 
-                        if result == 1 || response >= nr.Options.MaxRespTime || nr.Relation.Trace == 2 {
+                        if result == 1 || response > nr.Options.MaxRespTime || nr.Relation.Trace == 2 {
                             if nr.Relation.Trace == 0 && nr.Options.Command != "" {
                                 trace = 1
                                 go runTrace(nr.Id, nr.Options.Command, "netmapTraceroute", tags, clnt)
@@ -795,9 +825,14 @@ func main() {
                         cmd := newTemplate(nr.Relation.Command, tags)
 
                         if cmd != "" {
-                            response, err = runCmdWithOutput(nr.Id, cmd, timeout, *debug)
-                            if err != nil || response >= nr.Options.MaxRespTime {
-                                result = 1
+                            for {
+                                result, err = runCmdWithOutput(nr.Id, cmd, timeout, *debug)
+                                if result != 2 || err != nil {
+                                    if err != nil {
+                                        log.Printf("[error] running: %v", err)
+                                    }
+                                    break
+                                }
                             }
                             if nr.Relation.Type == "drop" {
                                 if *debug {
