@@ -213,6 +213,7 @@ func runCommand(scmd string, timeout time.Duration) ([]byte, float32, error) {
         return nil, responseTime, fmt.Errorf("non-zero exit code: %v '%s'", err, scmd)
     }
 
+    log.Printf("[info] finished '%s'", scmd)
     return out, responseTime, nil
 }
 
@@ -300,6 +301,7 @@ func runCmdWithOutput(id, scmd string, timeout time.Duration, debug bool) (int32
 
     // Ждем завершения команды
     err = cmd.Wait()
+    log.Printf("[info] finished '%s'", scmd)
     
     // Ждем завершения чтения обоих пайпов
     wg.Wait()
