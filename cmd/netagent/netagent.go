@@ -19,6 +19,7 @@ import (
     "runtime"
     "syscall"
     "strings"
+	"regexp"
     "text/template"
     "encoding/json"
     "encoding/base64"
@@ -228,11 +229,11 @@ func runCmdWithOutput(id, scmd string, timeout time.Duration, debug bool) (int32
     log.Printf("[info] running '%s'", scmd)
     
     name := "netmapCustomCommand"
-    if regexp.MatchString(".*ping.*", scmd) {
-        name := "netmapPing"
+    if ok, _ := regexp.MatchString(".*ping.*", scmd); ok {
+        name = "netmapPing"
     }
-    if regexp.MatchString(".*trace.*", scmd) {
-        name := "netmapTraceroute"
+    if ok, _ := regexp.MatchString(".*trace.*", scmd); ok {
+        name = "netmapTraceroute"
     }
 
     // Create a new context and add a timeout to it
