@@ -91,6 +91,7 @@ type NetResponse struct {
 
 type Output struct {
     Id               string
+    Name             string
     Stdout           string
     Stderr           string
 }
@@ -225,6 +226,14 @@ func runCmdWithOutput(id, scmd string, timeout time.Duration, debug bool) (int32
     }
 
     log.Printf("[info] running '%s'", scmd)
+    
+    name := "netmapCustomCommand"
+    if regexp.MatchString(".*ping.*", scmd) {
+        name := "netmapPing"
+    }
+    if regexp.MatchString(".*trace.*", scmd) {
+        name := "netmapTraceroute"
+    }
 
     // Create a new context and add a timeout to it
     ctx, cancel := context.WithTimeout(context.Background(), timeout*time.Second)
@@ -271,6 +280,7 @@ func runCmdWithOutput(id, scmd string, timeout time.Duration, debug bool) (int32
 
             output := Output{
                 Id: id,
+                Name: name,
                 Stdout: scanner.Text(),
             }
 
@@ -365,6 +375,7 @@ func runTrace(id, cmd, name string, tags map[string]string, cfg client.HttpConfi
 
     output := Output{
         Id: id,
+        Name: name,
         Stdout: string(out),
     }
 
@@ -595,6 +606,7 @@ func sendWebhook(clnt client.HttpConfig, cfg Config, debug bool) {
                 if !ok { continue }
 
                 alt.Labels = map[string]string{
+                    "alertname":  item.Name,
                     "src_name":   rec.LocalAddr.Name,
                     "src_ip":     rec.LocalAddr.IP,
                     "dst_name":   rec.RemoteAddr.Name,
@@ -836,15 +848,15 @@ func main() {
                                     break
                                 }
                             }
-                            if nr.Relation.Type == "drop" {
-                                if *debug {
-                                    log.Printf("[debug] DELETE - /api/v1/netmap/records (%v)", nr.Id)
-                                }
-                                if err = httpClient.DelRecords(clnt, "/api/v1/netmap/records", []byte("[\""+nr.Id+"\"]")); err != nil {
-                                    log.Printf("[error] %v - /api/v1/netmap/records", err)
-                                }
-                                return
+                        }
+                        if nr.Relation.Type == "drop" {
+                            if *debug {
+                                log.Printf("[debug] DELETE - /api/v1/netmap/records (%v)", nr.Id)
                             }
+                            if err = httpClient.DelRecords(clnt, "/api/v1/netmap/records", []byte("[\""+nr.Id+"\"]")); err != nil {
+                                log.Printf("[error] %v - /api/v1/netmap/records", err)
+                            }
+                            return
                         }
 
                     }
