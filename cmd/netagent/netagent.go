@@ -19,7 +19,7 @@ import (
     "runtime"
     "syscall"
     "strings"
-	"regexp"
+    "regexp"
     "text/template"
     "encoding/json"
     "encoding/base64"
@@ -181,9 +181,15 @@ func dialTimeout(network, address string, timeout time.Duration) (int32, float32
     return int32(0), responseTime
 }
 
-func runCommand(scmd string, timeout time.Duration) ([]byte, float32, error) {
-    log.Printf("[info] running '%s'", scmd)
+func runCommand(id, cmd string, timeout time.Duration) ([]byte, float32, error) {
+	if timeout == 0 { timeout = 3600 }
 
+	if _, err := cacheRecords.GetState(id); err != nil {
+        return []byte(""), 0, err
+    }
+
+	log.Printf("[info] running '%s'", cmd)
+    
     // Start Timer
     start := time.Now()
 
@@ -192,73 +198,87 @@ func runCommand(scmd string, timeout time.Duration) ([]byte, float32, error) {
     defer cancel() // The cancel should be deferred so resources are cleaned up
 
     // Create the command with our context
-    var cmd *exec.Cmd
+    var scmd *exec.Cmd
     if runtime.GOOS == "windows" {
-        cmd = exec.CommandContext(ctx, "cmd", "/C", scmd)
+        scmd = exec.CommandContext(ctx, "cmd", "/C", cmd)
     } else {
-        cmd = exec.CommandContext(ctx, "/bin/sh", "-c", scmd)
+        scmd = exec.CommandContext(ctx, "/bin/sh", "-c", cmd)
     }
 
     // This time we can simply use Output() to get the result.
-    out, err := cmd.Output()
+    out, err := scmd.Output()
 
     // Stop timer
     responseTime := float32(time.Since(start).Seconds())
 
     // Check the context error to see if the timeout was executed
     if ctx.Err() == context.DeadlineExceeded {
-        return nil, responseTime, fmt.Errorf("command timed out '%s'", scmd)
+        return nil, responseTime, fmt.Errorf("command timed out '%s'", cmd)
     }
 
     // If there's no context error, we know the command completed (or errored).
     if err != nil {
-        return nil, responseTime, fmt.Errorf("non-zero exit code: %v '%s'", err, scmd)
+        return nil, responseTime, fmt.Errorf("non-zero exit code: %v '%s'", err, cmd)
     }
 
-    log.Printf("[info] finished '%s'", scmd)
+    log.Printf("[info] finished '%s'", cmd)
+
+	name := "netmapCustomCommand"
+    if ok, _ := regexp.MatchString(".*ping.*", cmd); ok {
+        name = "netmapPing"
+    }
+    if ok, _ := regexp.MatchString(".*trace.*", cmd); ok {
+        name = "netmapTraceroute"
+    }
+
+    output := Output{
+        Id: id,
+        Name: name,
+        Stdout: string(out),
+    }
+
+    select {
+    case webhookChan <- output:
+        //log.Printf("[debug] len chan - %v", len(api.Collect))
+    default: 
+        // Канал переполнен, можно удалить или игнорировать
+    }
+
     return out, responseTime, nil
 }
 
-func runCmdWithOutput(id, scmd string, timeout time.Duration, debug bool) (int32, error) {
+func runCmdWithOutput(id, cmd string, timeout time.Duration, debug bool) (int32, error) {
     if timeout == 0 { timeout = 3600 }
     
     if _, err := cacheRecords.GetState(id); err != nil {
         return 0, err
     }
 
-    log.Printf("[info] running '%s'", scmd)
-    
-    name := "netmapCustomCommand"
-    if ok, _ := regexp.MatchString(".*ping.*", scmd); ok {
-        name = "netmapPing"
-    }
-    if ok, _ := regexp.MatchString(".*trace.*", scmd); ok {
-        name = "netmapTraceroute"
-    }
+	log.Printf("[info] running '%s'", cmd)
 
     // Create a new context and add a timeout to it
     ctx, cancel := context.WithTimeout(context.Background(), timeout*time.Second)
     defer cancel() // The cancel should be deferred so resources are cleaned up
 
     // Create the command with our context
-    var cmd *exec.Cmd
+    var scmd *exec.Cmd
     if runtime.GOOS == "windows" {
-        cmd = exec.CommandContext(ctx, "cmd", "/C", scmd)
+        scmd = exec.CommandContext(ctx, "cmd", "/C", cmd)
     } else {
-        cmd = exec.CommandContext(ctx, "/bin/sh", "-c", scmd)
+        scmd = exec.CommandContext(ctx, "/bin/sh", "-c", cmd)
     }
 
     // Получаем stdout
-    stdoutPipe, err := cmd.StdoutPipe()
+    stdoutPipe, err := scmd.StdoutPipe()
     if err != nil {
-        //fmt.Println("Error obtaining stdout:", err)
+        //log.Printf("Error obtaining stdout:", err)
         return 0, err
     }
 
     // Получаем stderr
-    stderrPipe, err := cmd.StderrPipe()
+    stderrPipe, err := scmd.StderrPipe()
     if err != nil {
-        fmt.Println("Error obtaining stderr:", err)
+        //log.Printf("Error obtaining stderr:", err)
         return 0, err
     }
 
@@ -277,6 +297,14 @@ func runCmdWithOutput(id, scmd string, timeout time.Duration, debug bool) (int32
 
             if debug {
                 log.Printf("[debug] stdout: %v", scanner.Text())
+            }
+
+            name := "netmapCmdCustomCommand"
+            if ok, _ := regexp.MatchString(".*ping.*", cmd); ok {
+                name = "netmapCmdPing"
+            }
+            if ok, _ := regexp.MatchString(".*trace.*", cmd); ok {
+                name = "netmapCmdTraceroute"
             }
 
             output := Output{
@@ -305,14 +333,14 @@ func runCmdWithOutput(id, scmd string, timeout time.Duration, debug bool) (int32
     }()
 
     // Запускаем команду
-    if err := cmd.Start(); err != nil {
+    if err := scmd.Start(); err != nil {
         wg.Wait()
         return 0, err
     }
 
     // Ждем завершения команды
-    err = cmd.Wait()
-    log.Printf("[info] finished '%s'", scmd)
+    err = scmd.Wait()
+    log.Printf("[info] finished '%s'", cmd)
     
     // Ждем завершения чтения обоих пайпов
     wg.Wait()
@@ -352,42 +380,6 @@ func newTemplate(cmd string, tags map[string]string) string {
     }
 
     return tpl.String()
-}
-
-func runTrace(id, cmd, name string, tags map[string]string, cfg client.HttpConfig) {
-    var tpl bytes.Buffer
-
-    tmpl, err := template.New("new").Parse(cmd)
-    if err != nil {
-        log.Printf("[error] %v", errors.Wrap(err, "parse"))
-        return
-    }
-
-    if err = tmpl.Execute(&tpl, &tags); err != nil {
-        log.Printf("[error] %v", errors.Wrap(err, "execute"))
-        return
-    }
-
-    out, _, err := runCommand(tpl.String(), 300)
-    if err != nil {
-        log.Printf("[error] %v", err)
-        return
-    }
-
-    output := Output{
-        Id: id,
-        Name: name,
-        Stdout: string(out),
-    }
-
-    select {
-    case webhookChan <- output:
-        //log.Printf("[debug] len chan - %v", len(api.Collect))
-    default: 
-        // Канал переполнен, можно удалить или игнорировать
-    }
-
-    return
 }
 
 // Get connections
@@ -825,21 +817,21 @@ func main() {
                         address := fmt.Sprintf("%v:%v", nr.RemoteAddr.IP, nr.Relation.Port)
                         result, response = dialTimeout(nr.Relation.Mode, address, timeout)
 
+						cmd := newTemplate(nr.Options.Command, tags)
                         if result == 1 || response > nr.Options.MaxRespTime || nr.Relation.Trace == 2 {
-                            if nr.Relation.Trace == 0 && nr.Options.Command != "" {
+                            if nr.Relation.Trace == 0 && cmd != "" {
                                 trace = 1
-                                go runTrace(nr.Id, nr.Options.Command, "netmapTraceroute", tags, clnt)
+                                go runCommand(nr.Id, cmd, timeout)
                             }
-                            if nr.Relation.Trace == 2 && nr.Options.Command != "" {
+                            if nr.Relation.Trace == 2 && cmd != "" {
                                 trace = 1
-                                go runTrace(nr.Id, nr.Options.Command, "netmapCustomCommand", tags, clnt)
+                                go runCommand(nr.Id, cmd, timeout)
                             }
                         }
 
                     case nr.Relation.Mode == "cmd":
-                        cmd := newTemplate(nr.Relation.Command, tags)
-
-                        if cmd != "" {
+						cmd := newTemplate(nr.Relation.Command, tags) 
+						if cmd != "" {
                             for {
                                 result, err = runCmdWithOutput(nr.Id, cmd, timeout, *debug)
                                 if result != 2 || err != nil {
