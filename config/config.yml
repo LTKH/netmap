@@ -9,7 +9,7 @@ global:
 
 db:
   client:         "sqlite3"
-  conn_string:    "/tmp/netmap.db"
+  conn_string:    "netmap.db"
   #client:         "mysql"
   #conn_string:    ""
   #name:           "netmap"

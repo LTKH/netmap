@@ -7,3 +7,16 @@ curl -XDELETE 'http://localhost:8084/api/v1/netmap/records' -d '["6914731f1c2d42
 curl -XPOST 'http://localhost:8084/api/v1/netmap/records' -d '{"data":[{"localAddr":{"ip":"192.168.64.30","name":"ubuntu-test"},"remoteAddr":{"ip":"192.168.64.30","name":"ubuntu-test"},"relation":{"mode":"cmd","command":"ping -c 5 192.168.64.30","port":0}}]}' -vv
 curl -XPOST 'http://localhost:8084/api/v1/netmap/records' -d '{"data":[{"localAddr":{"ip":"192.168.64.30","name":"ubuntu-test"},"remoteAddr":{"ip":"192.168.64.30","name":"ubuntu-test"},"relation":{"mode":"cmd","type":"drop","command":"ping -c 5 192.168.64.30","port":0}}]}' -vv
 curl -XPOST 'http://localhost:8084/api/v1/netmap/records' -d '{"data":[{"localAddr":{"ip":"192.168.64.30","name":"ubuntu-test"},"remoteAddr":{"ip":"192.168.0.52","name":"192.168.0.52"},"relation":{"mode":"cmd","command":"ping 192.168.0.52","port":0}}]}' -vv
+
+
+
+
+#GET /api/v1/netmap/records?relation_port=8080
+#GET /api/v1/netmap/records?options_status=active
+#GET /api/v1/netmap/records?remote_addr_ip=192.168.1.1
+#GET /api/v1/netmap/records?local_addr_name=server1&relation_type=tcp&options_service=ssh
+#GET /api/v1/netmap/records/total
+#GET /api/v1/netmap/records/count?src_name=server1
+#GET /api/v1/netmap/records/count?remote_addr_ip=192.168.1.1&relation_type=tcp
+#GET /api/v1/netmap/records/count?options_status=active&local_addr_port=8080
+#GET /api/v1/netmap/records/count?timestamp=1609459200&relation_port=443&options_service=https
