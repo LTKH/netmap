@@ -1802,6 +1802,20 @@ func (api *Api) ApiSearchPage(w http.ResponseWriter, r *http.Request) {
         .btn-secondary { background: #6c757d; color: white; }
         .btn-reset { background: #f8f9fa; color: #333; border: 1px solid #ddd; }
         .search-results { background: white; padding: 2rem; border-radius: 10px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); display: none; }
+        .results-table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+        .results-table th { background: #f8f9fa; padding: 1rem; text-align: left; border-bottom: 2px solid #dee2e6; }
+        .results-table td { padding: 0.8rem 1rem; border-bottom: 1px solid #eee; }
+        .results-table tr:hover { background: #f8f9fa; }
+        .loading { display: none; text-align: center; padding: 2rem; color: #667eea; }
+        .loading-spinner { border: 3px solid #f3f3f3; border-top: 3px solid #667eea; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 1rem; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .results-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+        .results-count { font-size: 1.2rem; color: #667eea; font-weight: 600; }
+        .status-active { color: #4CAF50; font-weight: 600; }
+        .status-inactive { color: #f44336; font-weight: 600; }
+        .protocol-tcp { color: #2196F3; }
+        .protocol-udp { color: #FF9800; }
+        .ip-address { font-family: 'Courier New', monospace; font-size: 0.9rem; color: #555; }
     </style>
 </head>
 <body>
@@ -1873,14 +1887,23 @@ func (api *Api) ApiSearchPage(w http.ResponseWriter, r *http.Request) {
             </div>
         </div>
         
+        <div class="loading" id="loading">
+            <div class="loading-spinner"></div>
+            <p>Searching records...</p>
+        </div>
+        
         <div class="search-results" id="searchResults">
-            <div style="text-align: center; padding: 2rem;">
-                Search results will appear here
+            <div class="results-header">
+                <div class="results-count" id="resultsCount">0 records found</div>
+                <button class="btn btn-primary" onclick="exportResults()">Export Results</button>
             </div>
+            <div id="resultsTableContainer"></div>
         </div>
     </div>
     
     <script>
+        let currentResults = [];
+        
         function resetForm() {
             document.querySelectorAll('input, select').forEach(element => {
                 if (element.type !== 'button') {
@@ -1889,13 +1912,184 @@ func (api *Api) ApiSearchPage(w http.ResponseWriter, r *http.Request) {
             });
         }
         
+        function buildQueryString() {
+            const params = new URLSearchParams();
+            const fields = [
+                'src_name', 'local_addr_ip', 'remote_addr_ip', 'relation_port',
+                'relation_mode', 'options_service', 'options_status', 'timestamp'
+            ];
+            
+            fields.forEach(field => {
+                const value = document.getElementById(field).value;
+                if (value) {
+                    params.append(field, value);
+                }
+            });
+            
+            return params.toString();
+        }
+        
         function getCount() {
-            alert('Count functionality would be implemented here');
+            const query = buildQueryString();
+            
+            fetch('/api/v1/netmap/records/count?' + query)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    alert('Found ' + data.count + ' records with current filters');
+                })
+                .catch(error => {
+                    alert('Failed to get count: ' + error.message);
+                    console.error('Error:', error);
+                });
         }
         
         function searchRecords() {
-            alert('Search functionality would be implemented here');
+            const query = buildQueryString();
+            const loading = document.getElementById('loading');
+            const resultsDiv = document.getElementById('searchResults');
+            
+            loading.style.display = 'block';
+            resultsDiv.style.display = 'none';
+            
+            fetch('/api/v1/netmap/records?' + query)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    loading.style.display = 'none';
+                    if (data.status === 'success') {
+                        currentResults = data.data;
+                        displayResults(data.data);
+                        resultsDiv.style.display = 'block';
+                    } else {
+                        alert('Error: ' + (data.error || 'Unknown error'));
+                    }
+                })
+                .catch(error => {
+                    loading.style.display = 'none';
+                    alert('Search failed: ' + error.message);
+                    console.error('Error:', error);
+                });
         }
+        
+        function displayResults(results) {
+            const container = document.getElementById('resultsTableContainer');
+            const countSpan = document.getElementById('resultsCount');
+            
+            countSpan.textContent = results.length + ' records found';
+            
+            if (results.length === 0) {
+                container.innerHTML = '<p style="text-align: center; padding: 2rem;">No records found</p>';
+                return;
+            }
+            
+            let html = '<table class="results-table">';
+            html += '<thead><tr>';
+            html += '<th>Time</th><th>Local</th><th>Remote</th><th>Protocol</th><th>Port</th><th>Service</th><th>Status</th>';
+            html += '</tr></thead><tbody>';
+            
+            results.forEach(record => {
+                // Format timestamp
+                const date = new Date(record.timestamp * 1000);
+                const timeStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+                
+                // Determine status class
+                const statusClass = record.options && record.options.status === 'active' ? 'status-active' : 'status-inactive';
+                const statusText = record.options && record.options.status ? record.options.status.toUpperCase() : 'UNKNOWN';
+                
+                // Determine protocol class
+                const protocolClass = record.relation && record.relation.type === 'tcp' ? 'protocol-tcp' : 
+                                     record.relation && record.relation.type === 'udp' ? 'protocol-udp' : '';
+                const protocolText = record.relation && record.relation.type ? record.relation.type.toUpperCase() : '';
+                
+                html += '<tr>';
+                html += '<td>' + timeStr + '</td>';
+                html += '<td>' + 
+                    (record.localAddr ? record.localAddr.name : 'N/A') + 
+                    '<br><small class="ip-address">' + 
+                    (record.localAddr ? record.localAddr.ip : 'N/A') + 
+                    '</small></td>';
+                html += '<td>' + 
+                    (record.remoteAddr ? record.remoteAddr.name : 'N/A') + 
+                    '<br><small class="ip-address">' + 
+                    (record.remoteAddr ? record.remoteAddr.ip : 'N/A') + 
+                    '</small></td>';
+                html += '<td class="' + protocolClass + '">' + protocolText + '</td>';
+                html += '<td>' + (record.relation ? record.relation.port : '') + '</td>';
+                html += '<td>' + (record.options ? record.options.service : '') + '</td>';
+                html += '<td class="' + statusClass + '">' + statusText + '</td>';
+                html += '</tr>';
+            });
+            
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+        
+        function exportResults() {
+            if (currentResults.length === 0) {
+                alert('No results to export');
+                return;
+            }
+            
+            // Create CSV content
+            const headers = ['Timestamp', 'Local Name', 'Local IP', 'Remote Name', 'Remote IP', 
+                           'Protocol', 'Port', 'Service', 'Status', 'Result', 'Response Time'];
+            
+            const rows = currentResults.map(record => {
+                const date = new Date(record.timestamp * 1000);
+                return [
+                    date.toISOString(),
+                    record.localAddr ? record.localAddr.name : '',
+                    record.localAddr ? record.localAddr.ip : '',
+                    record.remoteAddr ? record.remoteAddr.name : '',
+                    record.remoteAddr ? record.remoteAddr.ip : '',
+                    record.relation ? record.relation.type : '',
+                    record.relation ? record.relation.port : '',
+                    record.options ? record.options.service : '',
+                    record.options ? record.options.status : '',
+                    record.relation ? record.relation.result : '',
+                    record.relation ? record.relation.response : ''
+                ];
+            });
+            
+            const csvContent = [
+                headers.join(','),
+                ...rows.map(row => row.map(cell => 
+                    typeof cell === 'string' && cell.includes(',') ? '"' + cell + '"' : cell
+                ).join(','))
+            ].join('\\n');
+            
+            // Create download link
+            const blob = new Blob([csvContent], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'search-results-' + new Date().toISOString().slice(0, 10) + '.csv';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        }
+        
+        // Add event listeners for Enter key in input fields
+        document.addEventListener('DOMContentLoaded', function() {
+            const inputs = document.querySelectorAll('input');
+            inputs.forEach(input => {
+                input.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        searchRecords();
+                    }
+                });
+            });
+        });
     </script>
 </body>
 </html>`
