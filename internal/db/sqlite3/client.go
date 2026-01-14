@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"net"
 
 	"database/sql"
 	"encoding/json"
@@ -127,19 +128,24 @@ func (db *Client) LoadTableRecords() error {
 		var rec config.SockTable
 		var relation []uint8
 		var options []uint8
+		var LocalIP net.IP
+		var RemoteIP net.IP
+
 		err := rows.Scan(
 			&rec.Id,
 			&rec.Timestamp,
 			&rec.LocalAddr.Name,
-			&rec.LocalAddr.IP,
+			&LocalIP,
 			&rec.RemoteAddr.Name,
-			&rec.RemoteAddr.IP,
+			&RemoteIP,
 			&relation,
 			&options,
 		)
 		if err != nil {
 			return err
 		}
+		rec.LocalAddr.IP = LocalIP.String()
+		rec.RemoteAddr.IP = RemoteIP.String()
 		err = json.Unmarshal(relation, &rec.Relation)
 		if err != nil {
 			continue
@@ -409,9 +415,9 @@ func (db *Client) WriteRecord(rec config.SockTable) error {
 		rec.Id,
 		time.Now().UTC().Unix(),
 		rec.LocalAddr.Name,
-		rec.LocalAddr.IP,
+		net.ParseIP(rec.LocalAddr.IP),
 		rec.RemoteAddr.Name,
-		rec.RemoteAddr.IP,
+		net.ParseIP(rec.RemoteAddr.IP),
 		relation,
 		options,
 	)
