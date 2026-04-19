@@ -72,24 +72,33 @@ type SockAddr struct {
 }
 
 type Relation struct {
-	Mode     string  `json:"mode"`
-	Type     string  `json:"type"`
-	Port     uint32  `json:"port,omitempty"`
-	Command  string  `json:"command,omitempty"`
-	Result   int32   `json:"result"`
-	Response float32 `json:"response"`
-	Trace    int32   `json:"trace"`
+	Mode       string  `json:"mode"`
+	Type       string  `json:"type"`
+	Port       uint32  `json:"port,omitempty"`
+	Command    string  `json:"command,omitempty"`
+	Result     int32   `json:"result"`
+	Response   float32 `json:"response"`
+	Trace      int32   `json:"trace"`
+	Ping       int32   `json:"ping"`
+	Packets    int32   `json:"packets"`
+	PacketLoss int32   `json:"packet_loss"`
+	MinRtt     float32 `json:"min_rtt"`
+	MaxRtt     float32 `json:"max_rtt"`
+	AvgRtt     float32 `json:"avg_rtt"`
 }
 
 type Options struct {
-	Service     string  `json:"service,omitempty"`
-	Status      string  `json:"status,omitempty"`
-	Command     string  `json:"command,omitempty"`
-	Timeout     float32 `json:"timeout"`
-	MaxRespTime float32 `json:"maxRespTime"`
-	AccountID   uint32  `json:"accountID"`
-	HostMask    string  `json:"-"`
-	IgnoreMask  string  `json:"-"`
+	Service      string  `json:"service,omitempty"`
+	Status       string  `json:"status,omitempty"`
+	Command      string  `json:"command,omitempty"`
+	Timeout      float32 `json:"timeout"`
+	MaxRespTime  float32 `json:"maxRespTime"`
+	AccountID    uint32  `json:"accountID"`
+	HostMask     string  `json:"-"`
+	IgnoreMask   string  `json:"-"`
+	SrcInfo      string  `json:"src_info,omitempty"`
+	DstInfo      string  `json:"dst_info,omitempty"`
+	Descriptions string  `json:"descriptions,omitempty"`
 }
 
 type Config struct {
@@ -171,7 +180,6 @@ func (u *GlobUsers) UnmarshalYAML(unmarshal func(interface{}) error) error {
 		return err
 	}
 
-	// Создаем карту и заполняем её
 	result := make(map[string]string)
 	for _, usr := range users {
 		usr.Username = getEnv(usr.Username)
