@@ -1,4 +1,4 @@
-ARG GOLANG_IMAGE="golang:1.23.0"
+ARG GOLANG_IMAGE="golang:1.24.0"
 ARG RUNNER_IMAGE="busybox:1.36.1"
 
 FROM ${GOLANG_IMAGE} AS builder
