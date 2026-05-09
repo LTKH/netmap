@@ -2,17 +2,13 @@ syntax = "proto3";
 
 package events;
 
-// Путь, который будет использоваться для импорта сгенерированного кода
 option go_package = ".";
 
 service EventService {
-  // Запрос всех событий за период времени
   rpc ListObjects(ListObjectsRequest) returns (stream Event);
-  // Запрос для подписки (может быть пустым)
   rpc Subscribe(SubscribeRequest) returns (stream Event);
 }
 
-// Сообщение события
 message Event {
   string serverId = 1;
   string event = 2;
@@ -24,14 +20,12 @@ message Event {
   Options options = 8;
 }
 
-// Вложенное сообщение
 message SockAddr {
   string ip = 1;
   string name = 2;
   uint32 port = 3;
 }
 
-// Вложенное сообщение
 message Relation {
   string mode = 1;
   string type = 2;
@@ -40,9 +34,14 @@ message Relation {
   int32 result = 5;
   float response = 6;
   int32 trace = 7;
+  int32 ping = 8;          
+  int32 packets = 9;       
+  int32 packet_loss = 10;  
+  float min_rtt = 11;      
+  float max_rtt = 12;      
+  float avg_rtt = 13;       
 }
 
-// Вложенное сообщение
 message Options {
   string service = 1;
   string status = 2;
@@ -52,6 +51,9 @@ message Options {
   uint32 accountID = 6;
   string hostMask = 7;
   string ignoreMask = 8;
+  string src_info = 9;      
+  string dst_info = 10;     
+  string descriptions = 11; 
 }
 
 message SubscribeRequest {
@@ -62,4 +64,3 @@ message ListObjectsRequest {
   // Можно добавить фильтры или параметры подписки
   //int64 timestamp = 1;
 }
-

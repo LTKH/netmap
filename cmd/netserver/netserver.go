@@ -38,7 +38,7 @@ func main() {
 	logMaxSize := flag.Int("log.max-size", getEnvInt("NETSERVER_LOG_MAX_SIZE", 1), "log max size")
 	logMaxBackups := flag.Int("log.max-backups", getEnvInt("NETSERVER_LOG_MAX_BACKUPS", 3), "log max backups")
 	logMaxAge := flag.Int("log.max-age", getEnvInt("NETSERVER_LOG_MAX_AGE", 10), "log max age")
-	logCompress := flag.Bool("log.compress", getEnvBool("NETSERVER_LOG_COMPRE SS", true), "log compress")
+	logCompress := flag.Bool("log.compress", getEnvBool("NETSERVER_LOG_COMPRESS", true), "log compress")
 	logHTTPRequests := flag.Bool("log.http-requests", getEnvBool("NETSERVER_LOG_HTTP_REQUESTS", false), "enable HTTP request logging")
 	version := flag.Bool("version", false, "show netserver version")
 	debug := flag.Bool("debug", false, "debug mode")
@@ -64,13 +64,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("[error] %v", err)
 	}
+
 	if *connString != "" {
 		cfg.DB.ConnString = *connString
 	}
 
 	clientDB, err := db.NewClient(cfg.DB)
 	if err != nil {
-		log.Fatalf("[error] %v", err)
+		log.Fatalf("[error] failed to create database client: %v", err)
 	}
 
 	peers := []string{}
@@ -138,6 +139,9 @@ func main() {
 	for {
 		<-c
 		grpcServer.Stop()
+		if err := clientDB.Close(); err != nil {
+			log.Printf("[error] failed to close database: %v", err)
+		}
 		log.Print("[info] netserver stopped")
 		os.Exit(0)
 	}

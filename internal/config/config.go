@@ -20,15 +20,23 @@ type RecArgs struct {
 	SrcName   string `json:"src_name,omitempty"`
 	Timestamp string `json:"timestamp,omitempty"`
 
-	RelationPort   string `json:"relation_port,omitempty"`
-	RelationType   string `json:"relation_type,omitempty"`
-	RelationMode   string `json:"relation_mode,omitempty"`
-	RelationResult string `json:"relation_result,omitempty"`
-	RelationTrace  string `json:"relation_trace,omitempty"`
+	RelationPort       string `json:"relation_port,omitempty"`
+	RelationType       string `json:"relation_type,omitempty"`
+	RelationMode       string `json:"relation_mode,omitempty"`
+	RelationResult     string `json:"relation_result,omitempty"`
+	RelationTrace      string `json:"relation_trace,omitempty"`
+	RelationPing       string `json:"relation_ping,omitempty"`
+	RelationPacketLoss string `json:"relation_packet_loss,omitempty"`
+	RelationMinRtt     string `json:"relation_min_rtt,omitempty"`
+	RelationMaxRtt     string `json:"relation_max_rtt,omitempty"`
+	RelationAvgRtt     string `json:"relation_avg_rtt,omitempty"`
 
-	OptionsService   string `json:"options_service,omitempty"`
-	OptionsStatus    string `json:"options_status,omitempty"`
-	OptionsAccountId string `json:"options_accountid,omitempty"`
+	OptionsService      string `json:"options_service,omitempty"`
+	OptionsStatus       string `json:"options_status,omitempty"`
+	OptionsAccountId    string `json:"options_accountid,omitempty"`
+	OptionsSrcInfo      string `json:"options_src_info,omitempty"`
+	OptionsDstInfo      string `json:"options_dst_info,omitempty"`
+	OptionsDescriptions string `json:"options_descriptions,omitempty"`
 
 	LocalAddrName string `json:"local_addr_name,omitempty"`
 	LocalAddrIp   string `json:"local_addr_ip,omitempty"`
@@ -53,7 +61,6 @@ type Exception struct {
 	IgnoreMask string `json:"ignoreMask"`
 }
 
-// SockTable type represents each line of the /cmd/[tcp|udp]
 type SockTable struct {
 	Id         string   `json:"id,omitempty"`
 	State      string   `json:"-"`
@@ -64,7 +71,6 @@ type SockTable struct {
 	Options    Options  `json:"options"`
 }
 
-// SockAddr represents
 type SockAddr struct {
 	IP   string `json:"ip"`
 	Name string `json:"name"`
@@ -79,12 +85,12 @@ type Relation struct {
 	Result     int32   `json:"result"`
 	Response   float32 `json:"response"`
 	Trace      int32   `json:"trace"`
-	Ping       int32   `json:"ping"`
-	Packets    int32   `json:"packets"`
-	PacketLoss int32   `json:"packet_loss"`
-	MinRtt     float32 `json:"min_rtt"`
-	MaxRtt     float32 `json:"max_rtt"`
-	AvgRtt     float32 `json:"avg_rtt"`
+	Ping       int32   `json:"ping,omitempty"`
+	Packets    int32   `json:"packets,omitempty"`
+	PacketLoss int32   `json:"packet_loss,omitempty"`
+	MinRtt     float32 `json:"min_rtt,omitempty"`
+	MaxRtt     float32 `json:"max_rtt,omitempty"`
+	AvgRtt     float32 `json:"avg_rtt,omitempty"`
 }
 
 type Options struct {
@@ -174,7 +180,6 @@ func getEnv(value string) string {
 }
 
 func (u *GlobUsers) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	// Временная структура для чтения массива
 	var users []UserInfo
 	if err := unmarshal(&users); err != nil {
 		return err

@@ -1,18 +1,17 @@
 package sqlite3
 
 import (
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-	"net"
-
-	"database/sql"
-	"encoding/json"
 
 	"github.com/ltkh/netmap/internal/config"
 	_ "github.com/mattn/go-sqlite3"
@@ -82,7 +81,7 @@ func New(conf *config.DB) (*Client, error) {
 }
 
 func (db *Client) Close() error {
-	return nil
+	return db.client.Close()
 }
 
 func (db *Client) CreateTables() error {
@@ -99,6 +98,16 @@ func (db *Client) CreateTables() error {
       );
       create index if not exists localNameIdx 
         ON records (localName);
+      create index if not exists remoteNameIdx 
+        ON records (remoteName);
+      create index if not exists statusIdx 
+        ON records (json_extract(options, '$.status'));
+      create index if not exists pingIdx 
+        ON records (json_extract(relation, '$.ping'));
+      create index if not exists srcInfoIdx 
+        ON records (json_extract(options, '$.src_info'));
+      create index if not exists dstInfoIdx 
+        ON records (json_extract(options, '$.dst_info'));
       create table if not exists exceptions (
         id            varchar(50) primary key,
         accountId     int default 0,
@@ -118,7 +127,7 @@ func (db *Client) LoadTableRecords() error {
 
 	sql := "select id,timestamp,localName,localIP,remoteName,remoteIP,relation,options from records order by id"
 
-	rows, err := db.client.Query(sql, nil)
+	rows, err := db.client.Query(sql)
 	if err != nil {
 		return err
 	}
@@ -128,8 +137,8 @@ func (db *Client) LoadTableRecords() error {
 		var rec config.SockTable
 		var relation []uint8
 		var options []uint8
-		var LocalIP net.IP
-		var RemoteIP net.IP
+		var LocalIP []byte
+		var RemoteIP []byte
 
 		err := rows.Scan(
 			&rec.Id,
@@ -144,8 +153,14 @@ func (db *Client) LoadTableRecords() error {
 		if err != nil {
 			return err
 		}
-		rec.LocalAddr.IP = LocalIP.String()
-		rec.RemoteAddr.IP = RemoteIP.String()
+
+		if len(LocalIP) > 0 {
+			rec.LocalAddr.IP = net.IP(LocalIP).String()
+		}
+		if len(RemoteIP) > 0 {
+			rec.RemoteAddr.IP = net.IP(RemoteIP).String()
+		}
+
 		err = json.Unmarshal(relation, &rec.Relation)
 		if err != nil {
 			continue
@@ -172,7 +187,7 @@ func (db *Client) LoadTableExceptions() error {
 
 	sql := "select id,accountId,hostMask,ignoreMask from exceptions order by accountId,id"
 
-	rows, err := db.client.Query(sql, nil)
+	rows, err := db.client.Query(sql)
 	if err != nil {
 		return err
 	}
@@ -236,7 +251,6 @@ func (db *Client) SaveStatus(rec config.SockTable) error {
 }
 
 func (db *Client) SaveNetstat(rec config.SockTable) error {
-
 	return nil
 }
 
@@ -280,7 +294,10 @@ func (db *Client) LoadRecords(args config.RecArgs) ([]config.SockTable, error) {
 		args.RelationResult != "" || args.RelationTrace != "" ||
 		args.OptionsService != "" || args.OptionsStatus != "" || args.OptionsAccountId != "" ||
 		args.LocalAddrName != "" || args.LocalAddrIp != "" || args.LocalAddrPort != "" ||
-		args.RemoteAddrName != "" || args.RemoteAddrIp != "" || args.RemoteAddrPort != ""
+		args.RemoteAddrName != "" || args.RemoteAddrIp != "" || args.RemoteAddrPort != "" ||
+		args.OptionsSrcInfo != "" || args.OptionsDstInfo != "" || args.OptionsDescriptions != "" ||
+		args.RelationPing != "" || args.RelationPacketLoss != "" ||
+		args.RelationMinRtt != "" || args.RelationMaxRtt != "" || args.RelationAvgRtt != ""
 
 	if !hasFilters && args.SrcName == "" {
 		for _, val := range db.records.items {
@@ -290,8 +307,19 @@ func (db *Client) LoadRecords(args config.RecArgs) ([]config.SockTable, error) {
 	}
 
 	var recordsToCheck []config.SockTable
-	for _, val := range db.records.items {
-		recordsToCheck = append(recordsToCheck, val)
+
+	if args.SrcName != "" {
+		if indices, ok := db.records.index[args.SrcName]; ok {
+			for id := range indices {
+				if rec, found := db.records.items[id]; found {
+					recordsToCheck = append(recordsToCheck, rec)
+				}
+			}
+		}
+	} else {
+		for _, val := range db.records.items {
+			recordsToCheck = append(recordsToCheck, val)
+		}
 	}
 
 	for _, record := range recordsToCheck {
@@ -346,6 +374,43 @@ func (db *Client) LoadRecords(args config.RecArgs) ([]config.SockTable, error) {
 			}
 		}
 
+		if args.RelationPing != "" {
+			ping, err := strconv.ParseInt(args.RelationPing, 10, 32)
+			if err == nil {
+				if record.Relation.Ping != int32(ping) {
+					continue
+				}
+			}
+		}
+
+		if args.RelationPacketLoss != "" {
+			loss, err := strconv.ParseInt(args.RelationPacketLoss, 10, 32)
+			if err == nil && record.Relation.PacketLoss != int32(loss) {
+				continue
+			}
+		}
+
+		if args.RelationMinRtt != "" {
+			minRtt, err := strconv.ParseFloat(args.RelationMinRtt, 32)
+			if err == nil && record.Relation.MinRtt != float32(minRtt) {
+				continue
+			}
+		}
+
+		if args.RelationMaxRtt != "" {
+			maxRtt, err := strconv.ParseFloat(args.RelationMaxRtt, 32)
+			if err == nil && record.Relation.MaxRtt != float32(maxRtt) {
+				continue
+			}
+		}
+
+		if args.RelationAvgRtt != "" {
+			avgRtt, err := strconv.ParseFloat(args.RelationAvgRtt, 32)
+			if err == nil && record.Relation.AvgRtt != float32(avgRtt) {
+				continue
+			}
+		}
+
 		if args.OptionsService != "" && record.Options.Service != args.OptionsService {
 			continue
 		}
@@ -359,6 +424,18 @@ func (db *Client) LoadRecords(args config.RecArgs) ([]config.SockTable, error) {
 			if err == nil && record.Options.AccountID != uint32(accountId) {
 				continue
 			}
+		}
+
+		if args.OptionsSrcInfo != "" && !strings.Contains(record.Options.SrcInfo, args.OptionsSrcInfo) {
+			continue
+		}
+
+		if args.OptionsDstInfo != "" && !strings.Contains(record.Options.DstInfo, args.OptionsDstInfo) {
+			continue
+		}
+
+		if args.OptionsDescriptions != "" && !strings.Contains(record.Options.Descriptions, args.OptionsDescriptions) {
+			continue
 		}
 
 		if args.LocalAddrName != "" && record.LocalAddr.Name != args.LocalAddrName {
@@ -410,16 +487,19 @@ func (db *Client) WriteRecord(rec config.SockTable) error {
 		return err
 	}
 
+	localIP := net.ParseIP(rec.LocalAddr.IP)
+	remoteIP := net.ParseIP(rec.RemoteAddr.IP)
+
 	_, err = db.client.Exec(
 		sql,
 		rec.Id,
 		time.Now().UTC().Unix(),
 		rec.LocalAddr.Name,
-		net.ParseIP(rec.LocalAddr.IP),
+		localIP,
 		rec.RemoteAddr.Name,
-		net.ParseIP(rec.RemoteAddr.IP),
-		relation,
-		options,
+		remoteIP,
+		string(relation),
+		string(options),
 	)
 
 	if err != nil {
