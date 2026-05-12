@@ -72,39 +72,39 @@ type SockTable struct {
 }
 
 type SockAddr struct {
-	IP   string `json:"ip"`
-	Name string `json:"name"`
-	Port uint32 `json:"port,omitempty"`
+	IP   string `json:"ip" bson:"ip"`
+	Name string `json:"name" bson:"name"`
+	Port uint32 `json:"port,omitempty" bson:"port,omitempty"`
 }
 
 type Relation struct {
-	Mode       string  `json:"mode"`
-	Type       string  `json:"type"`
-	Port       uint32  `json:"port,omitempty"`
-	Command    string  `json:"command,omitempty"`
-	Result     int32   `json:"result"`
-	Response   float32 `json:"response"`
-	Trace      int32   `json:"trace"`
-	Ping       int32   `json:"ping,omitempty"`
-	Packets    int32   `json:"packets,omitempty"`
-	PacketLoss int32   `json:"packet_loss,omitempty"`
-	MinRtt     float32 `json:"min_rtt,omitempty"`
-	MaxRtt     float32 `json:"max_rtt,omitempty"`
-	AvgRtt     float32 `json:"avg_rtt,omitempty"`
+	Mode       string  `json:"mode" bson:"mode"`
+	Type       string  `json:"type,omitempty" bson:"type,omitempty"`
+	Port       uint32  `json:"port,omitempty" bson:"port,omitempty"`
+	Command    string  `json:"command,omitempty" bson:"command,omitempty"`
+	Result     int32   `json:"result" bson:"result"`
+	Response   float32 `json:"response" bson:"response"`
+	Trace      int32   `json:"trace" bson:"trace"`
+	Ping       int32   `json:"ping,omitempty" bson:"ping,omitempty"`
+	Packets    int32   `json:"packets,omitempty" bson:"packets,omitempty"`
+	PacketLoss int32   `json:"packet_loss,omitempty" bson:"packet_loss,omitempty"`
+	MinRtt     float32 `json:"min_rtt,omitempty" bson:"min_rtt,omitempty"`
+	MaxRtt     float32 `json:"max_rtt,omitempty" bson:"max_rtt,omitempty"`
+	AvgRtt     float32 `json:"avg_rtt,omitempty" bson:"avg_rtt,omitempty"`
 }
 
 type Options struct {
-	Service      string  `json:"service,omitempty"`
-	Status       string  `json:"status,omitempty"`
-	Command      string  `json:"command,omitempty"`
-	Timeout      float32 `json:"timeout"`
-	MaxRespTime  float32 `json:"maxRespTime"`
-	AccountID    uint32  `json:"accountID"`
-	HostMask     string  `json:"-"`
-	IgnoreMask   string  `json:"-"`
-	SrcInfo      string  `json:"src_info,omitempty"`
-	DstInfo      string  `json:"dst_info,omitempty"`
-	Descriptions string  `json:"descriptions,omitempty"`
+	Service      string  `json:"service,omitempty" bson:"service,omitempty"`
+	Status       string  `json:"status,omitempty" bson:"status,omitempty"`
+	Command      string  `json:"command,omitempty" bson:"command,omitempty"`
+	Timeout      float32 `json:"timeout,omitempty" bson:"timeout,omitempty"`
+	MaxRespTime  float32 `json:"maxRespTime,omitempty" bson:"maxRespTime,omitempty"`
+	AccountID    uint32  `json:"accountID,omitempty" bson:"accountID,omitempty"`
+	HostMask     string  `json:"hostMask,omitempty" bson:"hostMask,omitempty"`
+	IgnoreMask   string  `json:"ignoreMask,omitempty" bson:"ignoreMask,omitempty"`
+	SrcInfo      string  `json:"src_info,omitempty" bson:"src_info,omitempty"`
+	DstInfo      string  `json:"dst_info,omitempty" bson:"dst_info,omitempty"`
+	Descriptions string  `json:"descriptions,omitempty" bson:"descriptions,omitempty"`
 }
 
 type Config struct {
