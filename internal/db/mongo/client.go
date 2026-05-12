@@ -12,6 +12,7 @@ import (
 
 	"github.com/ltkh/netmap/internal/config"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -41,14 +42,12 @@ type Exceptions struct {
 }
 
 type RecordDocument struct {
-	ID         string          `bson:"_id"`
-	Timestamp  int64           `bson:"timestamp"`
-	LocalName  string          `bson:"localName"`
-	LocalIP    string          `bson:"localIP"`
-	RemoteName string          `bson:"remoteName"`
-	RemoteIP   string          `bson:"remoteIP"`
-	Relation   config.Relation `bson:"relation"`
-	Options    config.Options  `bson:"options"`
+	ID         string             `bson:"_id"`
+	Timestamp  int64              `bson:"timestamp"`
+	LocalAddr  config.SockAddr    `bson:"localAddr"`
+	RemoteAddr config.SockAddr    `bson:"remoteAddr"`
+	Relation   config.Relation    `bson:"relation"`
+	Options    config.Options     `bson:"options"`
 }
 
 type ExceptionDocument struct {
@@ -60,16 +59,16 @@ type ExceptionDocument struct {
 
 func New(conf *config.DB) (*Client, error) {
 	ctx := context.Background()
-
+	
 	clientOptions := options.Client().ApplyURI(conf.ConnString)
-
+	
 	if conf.Username != "" && conf.Password != "" {
 		clientOptions.SetAuth(options.Credential{
 			Username: conf.Username,
 			Password: conf.Password,
 		})
 	}
-
+	
 	client, err := mongo.Connect(ctx, clientOptions)
 	if err != nil {
 		return nil, err
@@ -83,7 +82,7 @@ func New(conf *config.DB) (*Client, error) {
 	if conf.Limit == 0 {
 		conf.Limit = 1000000
 	}
-
+	
 	if conf.Name == "" {
 		conf.Name = "netmap"
 	}
@@ -121,25 +120,25 @@ func (db *Client) Close() error {
 
 func (db *Client) CreateTables() error {
 	ctx := context.Background()
-
+	
 	recordsCollection := db.database.Collection("records")
 	exceptionsCollection := db.database.Collection("exceptions")
-
+	
 	indexes := []mongo.IndexModel{
 		{
-			Keys:    bson.D{{Key: "localName", Value: 1}},
+			Keys:    bson.D{{Key: "localAddr.name", Value: 1}},
 			Options: options.Index().SetName("idx_local_name"),
 		},
 		{
-			Keys:    bson.D{{Key: "remoteName", Value: 1}},
+			Keys:    bson.D{{Key: "remoteAddr.name", Value: 1}},
 			Options: options.Index().SetName("idx_remote_name"),
 		},
 		{
-			Keys:    bson.D{{Key: "localIP", Value: 1}},
+			Keys:    bson.D{{Key: "localAddr.ip", Value: 1}},
 			Options: options.Index().SetName("idx_local_ip"),
 		},
 		{
-			Keys:    bson.D{{Key: "remoteIP", Value: 1}},
+			Keys:    bson.D{{Key: "remoteAddr.ip", Value: 1}},
 			Options: options.Index().SetName("idx_remote_ip"),
 		},
 		{
@@ -175,12 +174,12 @@ func (db *Client) CreateTables() error {
 			Options: options.Index().SetName("idx_account_id"),
 		},
 	}
-
+	
 	_, err := recordsCollection.Indexes().CreateMany(ctx, indexes)
 	if err != nil {
 		return err
 	}
-
+	
 	exceptionIndexes := []mongo.IndexModel{
 		{
 			Keys:    bson.D{{Key: "accountId", Value: 1}},
@@ -191,12 +190,12 @@ func (db *Client) CreateTables() error {
 			Options: options.Index().SetName("idx_host_mask"),
 		},
 	}
-
+	
 	_, err = exceptionsCollection.Indexes().CreateMany(ctx, exceptionIndexes)
 	if err != nil {
 		return err
 	}
-
+	
 	return nil
 }
 
@@ -204,107 +203,101 @@ func (db *Client) LoadTables() error {
 	if err := db.loadTableRecords(); err != nil {
 		return err
 	}
-
+	
 	if err := db.loadTableExceptions(); err != nil {
 		return err
 	}
-
+	
 	return nil
 }
 
 func (db *Client) loadTableRecords() error {
 	db.records.Lock()
 	defer db.records.Unlock()
-
+	
 	ctx := context.Background()
 	recordsCollection := db.database.Collection("records")
-
+	
 	opts := options.Find().SetLimit(int64(db.config.Limit))
 	cursor, err := recordsCollection.Find(ctx, bson.M{}, opts)
 	if err != nil {
 		return err
 	}
 	defer cursor.Close(ctx)
-
+	
 	for cursor.Next(ctx) {
 		var doc RecordDocument
 		if err := cursor.Decode(&doc); err != nil {
 			log.Printf("[error] failed to decode record: %v", err)
 			continue
 		}
-
+		
 		rec := config.SockTable{
-			Id:        doc.ID,
-			Timestamp: doc.Timestamp,
-			LocalAddr: config.SockAddr{
-				Name: doc.LocalName,
-				IP:   doc.LocalIP,
-			},
-			RemoteAddr: config.SockAddr{
-				Name: doc.RemoteName,
-				IP:   doc.RemoteIP,
-			},
-			Relation: doc.Relation,
-			Options:  doc.Options,
+			Id:         doc.ID,
+			Timestamp:  doc.Timestamp,
+			LocalAddr:  doc.LocalAddr,
+			RemoteAddr: doc.RemoteAddr,
+			Relation:   doc.Relation,
+			Options:    doc.Options,
 		}
-
+		
 		if _, ok := db.records.index[rec.LocalAddr.Name]; !ok {
 			db.records.index[rec.LocalAddr.Name] = make(map[string]bool)
 		}
-
+		
 		db.records.index[rec.LocalAddr.Name][rec.Id] = true
 		db.records.items[rec.Id] = rec
 	}
-
+	
 	return nil
 }
 
 func (db *Client) loadTableExceptions() error {
 	db.exceptions.Lock()
 	defer db.exceptions.Unlock()
-
+	
 	ctx := context.Background()
 	exceptionsCollection := db.database.Collection("exceptions")
-
+	
 	cursor, err := exceptionsCollection.Find(ctx, bson.M{})
 	if err != nil {
 		return err
 	}
 	defer cursor.Close(ctx)
-
+	
 	for cursor.Next(ctx) {
 		var doc ExceptionDocument
 		if err := cursor.Decode(&doc); err != nil {
 			log.Printf("[error] failed to decode exception: %v", err)
 			continue
 		}
-
+		
 		exp := config.Exception{
 			Id:         doc.ID,
 			AccountID:  doc.AccountID,
 			HostMask:   doc.HostMask,
 			IgnoreMask: doc.IgnoreMask,
 		}
-
+		
 		db.exceptions.items[exp.Id] = exp
 	}
-
+	
 	return nil
 }
 
 func (db *Client) SaveStatus(rec config.SockTable) error {
 	db.records.Lock()
 	defer db.records.Unlock()
-
+	
 	item, found := db.records.items[rec.Id]
 	if !found {
 		return nil
 	}
-
+	
 	if item.Timestamp > rec.Timestamp {
 		return nil
 	}
-
+	
 	if item.Relation != rec.Relation {
 		item.Relation = rec.Relation
 		if len(db.queue) < queue_limit {
@@ -313,9 +306,9 @@ func (db *Client) SaveStatus(rec config.SockTable) error {
 			log.Print("[error] DB write queue is full")
 		}
 	}
-
+	
 	db.records.items[rec.Id] = item
-
+	
 	return nil
 }
 
@@ -326,18 +319,18 @@ func (db *Client) SaveNetstat(rec config.SockTable) error {
 func (db *Client) SaveTracert(rec config.SockTable) error {
 	db.records.Lock()
 	defer db.records.Unlock()
-
+	
 	item, found := db.records.items[rec.Id]
 	if !found {
 		return nil
 	}
-
+	
 	if item.Timestamp > rec.Timestamp {
 		return nil
 	}
-
+	
 	item.Relation.Trace = 2
-
+	
 	if rec.Options.Command != "" {
 		item.Options.Command = rec.Options.Command
 		if len(db.queue) < queue_limit {
@@ -346,27 +339,27 @@ func (db *Client) SaveTracert(rec config.SockTable) error {
 			log.Print("[error] DB write queue is full")
 		}
 	}
-
+	
 	db.records.items[rec.Id] = item
-
+	
 	return nil
 }
 
 func (db *Client) LoadRecords(args config.RecArgs) ([]config.SockTable, error) {
 	db.records.RLock()
 	defer db.records.RUnlock()
-
+	
 	var items []config.SockTable
-
+	
 	if !db.hasFilters(args) && args.SrcName == "" {
 		for _, val := range db.records.items {
 			items = append(items, val)
 		}
 		return items, nil
 	}
-
+	
 	var recordsToCheck []config.SockTable
-
+	
 	if args.SrcName != "" {
 		if indices, ok := db.records.index[args.SrcName]; ok {
 			for id := range indices {
@@ -380,13 +373,13 @@ func (db *Client) LoadRecords(args config.RecArgs) ([]config.SockTable, error) {
 			recordsToCheck = append(recordsToCheck, val)
 		}
 	}
-
+	
 	for _, record := range recordsToCheck {
 		if db.matchFilters(record, args) {
 			items = append(items, record)
 		}
 	}
-
+	
 	return items, nil
 }
 
@@ -394,12 +387,12 @@ func (db *Client) hasFilters(args config.RecArgs) bool {
 	return args.Id != "" || args.Type != "" || args.Timestamp != "" ||
 		args.RelationPort != "" || args.RelationType != "" || args.RelationMode != "" ||
 		args.RelationResult != "" || args.RelationTrace != "" ||
-		args.OptionsService != "" || args.OptionsStatus != "" || args.OptionsAccountId != "" ||
-		args.LocalAddrName != "" || args.LocalAddrIp != "" || args.LocalAddrPort != "" ||
-		args.RemoteAddrName != "" || args.RemoteAddrIp != "" || args.RemoteAddrPort != "" ||
-		args.OptionsSrcInfo != "" || args.OptionsDstInfo != "" || args.OptionsDescriptions != "" ||
 		args.RelationPing != "" || args.RelationPacketLoss != "" ||
-		args.RelationMinRtt != "" || args.RelationMaxRtt != "" || args.RelationAvgRtt != ""
+		args.RelationMinRtt != "" || args.RelationMaxRtt != "" || args.RelationAvgRtt != "" ||
+		args.OptionsService != "" || args.OptionsStatus != "" || args.OptionsAccountId != "" ||
+		args.OptionsSrcInfo != "" || args.OptionsDstInfo != "" || args.OptionsDescriptions != "" ||
+		args.LocalAddrName != "" || args.LocalAddrIp != "" || args.LocalAddrPort != "" ||
+		args.RemoteAddrName != "" || args.RemoteAddrIp != "" || args.RemoteAddrPort != ""
 }
 
 func (db *Client) matchFilters(record config.SockTable, args config.RecArgs) bool {
@@ -409,161 +402,159 @@ func (db *Client) matchFilters(record config.SockTable, args config.RecArgs) boo
 			return false
 		}
 	}
-
+	
 	if args.Id != "" && record.Id != args.Id {
 		return false
 	}
-
+	
 	if args.Type != "" && record.Relation.Type != args.Type {
 		return false
 	}
-
+	
 	if args.Timestamp != "" {
 		ts, err := strconv.ParseInt(args.Timestamp, 10, 64)
 		if err == nil && record.Timestamp < ts {
 			return false
 		}
 	}
-
+	
 	if args.RelationPort != "" {
 		port, err := strconv.ParseUint(args.RelationPort, 10, 32)
 		if err == nil && record.Relation.Port != uint32(port) {
 			return false
 		}
 	}
-
+	
 	if args.RelationMode != "" && record.Relation.Mode != args.RelationMode {
 		return false
 	}
-
+	
 	if args.RelationResult != "" {
 		result, err := strconv.ParseInt(args.RelationResult, 10, 32)
 		if err == nil && record.Relation.Result != int32(result) {
 			return false
 		}
 	}
-
+	
 	if args.RelationTrace != "" {
 		trace, err := strconv.ParseInt(args.RelationTrace, 10, 32)
 		if err == nil && record.Relation.Trace != int32(trace) {
 			return false
 		}
 	}
-
+	
 	if args.RelationPing != "" {
-		ping, err := strconv.ParseInt(args.RelationPing, 10, 32)
-		if err == nil {
-			if record.Relation.Ping != int32(ping) {
-				return false
-			}
+		pingFilter, err := strconv.Atoi(args.RelationPing)
+		if err == nil && record.Relation.Ping != int32(pingFilter) {
+			return false
 		}
 	}
-
+	
 	if args.RelationPacketLoss != "" {
-		loss, err := strconv.ParseInt(args.RelationPacketLoss, 10, 32)
+		loss, err := strconv.Atoi(args.RelationPacketLoss)
 		if err == nil && record.Relation.PacketLoss != int32(loss) {
 			return false
 		}
 	}
-
+	
 	if args.RelationMinRtt != "" {
 		minRtt, err := strconv.ParseFloat(args.RelationMinRtt, 32)
 		if err == nil && record.Relation.MinRtt != float32(minRtt) {
 			return false
 		}
 	}
-
+	
 	if args.RelationMaxRtt != "" {
 		maxRtt, err := strconv.ParseFloat(args.RelationMaxRtt, 32)
 		if err == nil && record.Relation.MaxRtt != float32(maxRtt) {
 			return false
 		}
 	}
-
+	
 	if args.RelationAvgRtt != "" {
 		avgRtt, err := strconv.ParseFloat(args.RelationAvgRtt, 32)
 		if err == nil && record.Relation.AvgRtt != float32(avgRtt) {
 			return false
 		}
 	}
-
+	
 	if args.OptionsService != "" && record.Options.Service != args.OptionsService {
 		return false
 	}
-
+	
 	if args.OptionsStatus != "" && record.Options.Status != args.OptionsStatus {
 		return false
 	}
-
+	
 	if args.OptionsAccountId != "" {
 		accountId, err := strconv.ParseUint(args.OptionsAccountId, 10, 32)
 		if err == nil && record.Options.AccountID != uint32(accountId) {
 			return false
 		}
 	}
-
+	
 	if args.OptionsSrcInfo != "" && !strings.Contains(record.Options.SrcInfo, args.OptionsSrcInfo) {
 		return false
 	}
-
+	
 	if args.OptionsDstInfo != "" && !strings.Contains(record.Options.DstInfo, args.OptionsDstInfo) {
 		return false
 	}
-
+	
 	if args.OptionsDescriptions != "" && !strings.Contains(record.Options.Descriptions, args.OptionsDescriptions) {
 		return false
 	}
-
+	
 	if args.LocalAddrName != "" && record.LocalAddr.Name != args.LocalAddrName {
 		return false
 	}
-
+	
 	if args.LocalAddrIp != "" && record.LocalAddr.IP != args.LocalAddrIp {
 		return false
 	}
-
+	
 	if args.LocalAddrPort != "" {
 		port, err := strconv.ParseUint(args.LocalAddrPort, 10, 32)
 		if err == nil && record.LocalAddr.Port != uint32(port) {
 			return false
 		}
 	}
-
+	
 	if args.RemoteAddrName != "" && record.RemoteAddr.Name != args.RemoteAddrName {
 		return false
 	}
-
+	
 	if args.RemoteAddrIp != "" && record.RemoteAddr.IP != args.RemoteAddrIp {
 		return false
 	}
-
+	
 	if args.RemoteAddrPort != "" {
 		port, err := strconv.ParseUint(args.RemoteAddrPort, 10, 32)
 		if err == nil && record.RemoteAddr.Port != uint32(port) {
 			return false
 		}
 	}
-
+	
 	return true
 }
 
 func (db *Client) SaveRecord(rec config.SockTable) error {
 	db.records.Lock()
 	defer db.records.Unlock()
-
+	
 	if rec.Id == "" {
 		rec.Id = config.GetIdRec(&rec)
 	}
-
+	
 	item, found := db.records.items[rec.Id]
 	if found && item.Timestamp > rec.Timestamp {
 		return nil
 	}
-
+	
 	if !found && len(db.records.items) >= db.config.Limit {
 		return errors.New("cache limit exceeded")
 	}
-
+	
 	if !found || (item.Relation != rec.Relation || item.Options != rec.Options) {
 		if len(db.queue) < queue_limit {
 			db.queue <- rec
@@ -571,55 +562,120 @@ func (db *Client) SaveRecord(rec config.SockTable) error {
 			log.Print("[error] DB write queue is full")
 		}
 	}
-
+	
 	if _, ok := db.records.index[rec.LocalAddr.Name]; !ok {
 		db.records.index[rec.LocalAddr.Name] = make(map[string]bool)
 	}
-
+	
 	db.records.index[rec.LocalAddr.Name][rec.Id] = true
 	db.records.items[rec.Id] = rec
-
+	
 	return nil
 }
 
 func (db *Client) writeRecord(rec config.SockTable) error {
 	ctx := context.Background()
 	recordsCollection := db.database.Collection("records")
-
-	doc := RecordDocument{
-		ID:         rec.Id,
-		Timestamp:  time.Now().UTC().Unix(),
-		LocalName:  rec.LocalAddr.Name,
-		LocalIP:    rec.LocalAddr.IP,
-		RemoteName: rec.RemoteAddr.Name,
-		RemoteIP:   rec.RemoteAddr.IP,
-		Relation:   rec.Relation,
-		Options:    rec.Options,
-	}
-
+	
+	doc := db.cleanRecordForSave(rec)
+	
 	opts := options.Replace().SetUpsert(true)
 	_, err := recordsCollection.ReplaceOne(ctx, bson.M{"_id": rec.Id}, doc, opts)
-
+	
 	return err
+}
+
+func (db *Client) cleanRecordForSave(rec config.SockTable) RecordDocument {
+	doc := RecordDocument{
+		ID:        rec.Id,
+		Timestamp: time.Now().UTC().Unix(),
+		LocalAddr: config.SockAddr{
+			Name: rec.LocalAddr.Name,
+			IP:   rec.LocalAddr.IP,
+		},
+		RemoteAddr: config.SockAddr{
+			Name: rec.RemoteAddr.Name,
+			IP:   rec.RemoteAddr.IP,
+		},
+		Relation: rec.Relation,
+		Options:  rec.Options,
+	}
+	
+	if doc.LocalAddr.Name == "" {
+		doc.LocalAddr.Name = ""
+	}
+	if doc.LocalAddr.IP == "" {
+		doc.LocalAddr.IP = ""
+	}
+	if doc.LocalAddr.Port == 0 {
+		doc.LocalAddr.Port = 0
+	}
+	
+	if doc.RemoteAddr.Name == "" {
+		doc.RemoteAddr.Name = ""
+	}
+	if doc.RemoteAddr.IP == "" {
+		doc.RemoteAddr.IP = ""
+	}
+	if doc.RemoteAddr.Port == 0 {
+		doc.RemoteAddr.Port = 0
+	}
+	
+	if doc.Relation.Type == "" {
+		doc.Relation.Type = ""
+	}
+	if doc.Relation.Command == "" {
+		doc.Relation.Command = ""
+	}
+	if doc.Relation.Port == 0 {
+		doc.Relation.Port = 0
+	}
+	
+	if doc.Options.Service == "" {
+		doc.Options.Service = ""
+	}
+	if doc.Options.Status == "" {
+		doc.Options.Status = ""
+	}
+	if doc.Options.Command == "" {
+		doc.Options.Command = ""
+	}
+	if doc.Options.HostMask == "" {
+		doc.Options.HostMask = ""
+	}
+	if doc.Options.IgnoreMask == "" {
+		doc.Options.IgnoreMask = ""
+	}
+	if doc.Options.SrcInfo == "" {
+		doc.Options.SrcInfo = ""
+	}
+	if doc.Options.DstInfo == "" {
+		doc.Options.DstInfo = ""
+	}
+	if doc.Options.Descriptions == "" {
+		doc.Options.Descriptions = ""
+	}
+	
+	return doc
 }
 
 func (db *Client) DelRecord(id string) error {
 	db.records.Lock()
 	defer db.records.Unlock()
-
+	
 	ctx := context.Background()
 	recordsCollection := db.database.Collection("records")
-
+	
 	_, err := recordsCollection.DeleteOne(ctx, bson.M{"_id": id})
 	if err != nil {
 		return err
 	}
-
+	
 	rec, found := db.records.items[id]
 	if !found {
 		return nil
 	}
-
+	
 	if _, ok := db.records.index[rec.LocalAddr.Name]; ok {
 		if _, ok := db.records.index[rec.LocalAddr.Name][id]; ok {
 			delete(db.records.index[rec.LocalAddr.Name], id)
@@ -628,18 +684,18 @@ func (db *Client) DelRecord(id string) error {
 			delete(db.records.index, rec.LocalAddr.Name)
 		}
 	}
-
+	
 	delete(db.records.items, id)
-
+	
 	return nil
 }
 
 func (db *Client) LoadExceptions(args config.ExpArgs) ([]config.Exception, error) {
 	db.exceptions.RLock()
 	defer db.exceptions.RUnlock()
-
+	
 	items := []config.Exception{}
-
+	
 	if args.Id != "" {
 		rec, found := db.exceptions.items[args.Id]
 		if found {
@@ -648,46 +704,46 @@ func (db *Client) LoadExceptions(args config.ExpArgs) ([]config.Exception, error
 		}
 		return items, errors.New("object not found")
 	}
-
+	
 	for _, val := range db.exceptions.items {
 		if args.AccountID != "" {
 			if fmt.Sprint(val.AccountID) != args.AccountID {
 				continue
 			}
 		}
-
+		
 		items = append(items, val)
 	}
-
+	
 	return items, nil
 }
 
 func (db *Client) SaveException(rec config.SockTable) error {
 	db.exceptions.Lock()
 	defer db.exceptions.Unlock()
-
+	
 	except, found := db.records.items[rec.Id]
 	if found && except.Timestamp > rec.Timestamp {
 		return nil
 	}
-
+	
 	ctx := context.Background()
 	exceptionsCollection := db.database.Collection("exceptions")
-
+	
 	doc := ExceptionDocument{
 		ID:         rec.Id,
 		AccountID:  rec.Options.AccountID,
 		HostMask:   rec.Options.HostMask,
 		IgnoreMask: rec.Options.IgnoreMask,
 	}
-
+	
 	opts := options.Replace().SetUpsert(true)
 	_, err := exceptionsCollection.ReplaceOne(ctx, bson.M{"_id": rec.Id}, doc, opts)
-
+	
 	if err != nil {
 		return err
 	}
-
+	
 	db.exceptions.items[rec.Id] = config.Exception{
 		Id:         rec.Id,
 		Timestamp:  rec.Timestamp,
@@ -695,23 +751,23 @@ func (db *Client) SaveException(rec config.SockTable) error {
 		HostMask:   rec.Options.HostMask,
 		IgnoreMask: rec.Options.IgnoreMask,
 	}
-
+	
 	return nil
 }
 
 func (db *Client) DelException(id string) error {
 	db.exceptions.Lock()
 	defer db.exceptions.Unlock()
-
+	
 	ctx := context.Background()
 	exceptionsCollection := db.database.Collection("exceptions")
-
+	
 	_, err := exceptionsCollection.DeleteOne(ctx, bson.M{"_id": id})
 	if err != nil {
 		return err
 	}
-
+	
 	delete(db.exceptions.items, id)
-
+	
 	return nil
 }
