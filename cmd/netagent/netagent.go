@@ -238,9 +238,11 @@ func parsePingOutput(output string, packets int32) *PingResult {
 			if matches := re.FindStringSubmatch(line); len(matches) == 4 {
 				fmt.Sscanf(matches[1], "%d", &result.Transmitted)
 				fmt.Sscanf(matches[2], "%d", &result.Received)
-				fmt.Sscanf(matches[3], "%f", &result.PacketLoss)
+				var lossFloat float32
+				fmt.Sscanf(matches[3], "%f", lossFloat)
+				result.PacketLoss = int32(lossFloat)
 				foundStats = true
-				log.Printf("[debug] Linux ping stats: tx=%d, rx=%d, loss=%.1f%%",
+				log.Printf("[debug] Linux ping stats: tx=%d, rx=%d, loss=%d%%",
 					result.Transmitted, result.Received, result.PacketLoss)
 				break
 			}
@@ -251,9 +253,11 @@ func parsePingOutput(output string, packets int32) *PingResult {
 			if matches := re.FindStringSubmatch(line); len(matches) == 4 {
 				fmt.Sscanf(matches[1], "%d", &result.Transmitted)
 				fmt.Sscanf(matches[2], "%d", &result.Received)
-				fmt.Sscanf(matches[3], "%f", &result.PacketLoss)
+				var lossFloat float32
+				fmt.Sscanf(matches[3], "%f", lossFloat)
+				result.PacketLoss = int32(lossFloat)
 				foundStats = true
-				log.Printf("[debug] Windows ping stats: tx=%d, rx=%d, loss=%.1f%%",
+				log.Printf("[debug] Windows ping stats: tx=%d, rx=%d, loss=%d%%",
 					result.Transmitted, result.Received, result.PacketLoss)
 				break
 			}
