@@ -196,10 +196,6 @@ func runPing(host string, packets int32, timeout time.Duration) (*PingResult, er
 		packets = 4
 	}
 
-	if timeout == 0 {
-		timeout = 30 * time.Second
-	}
-
 	var cmd *exec.Cmd
 
 	if runtime.GOOS == "windows" {
@@ -208,32 +204,15 @@ func runPing(host string, packets int32, timeout time.Duration) (*PingResult, er
 		cmd = exec.Command("ping", "-c", fmt.Sprintf("%d", packets), host)
 	}
 
-	done := make(chan error, 1)
-	var output []byte
+	output, err := cmd.CombinedOutput()
 
-	go func() {
-		var err error
-		output, err = cmd.CombinedOutput()
-		done <- err
-	}()
+	result := parsePingOutput(string(output), packets)
 
-	select {
-	case err := <-done:
-		if err != nil {
-			log.Printf("[debug] ping command error: %v", err)
-		}
-		result := parsePingOutput(string(output), packets)
-		return result, nil
-	case <-time.After(timeout):
-		if cmd.Process != nil {
-			cmd.Process.Kill()
-		}
-		return &PingResult{
-			PacketLoss:  100,
-			Transmitted: packets,
-			Received:    0,
-		}, nil
+	if err != nil {
+		log.Printf("[debug] ping command error for %s: %v", host, err)
 	}
+
+	return result, nil
 }
 
 func parsePingOutput(output string, packets int32) *PingResult {
@@ -249,6 +228,7 @@ func parsePingOutput(output string, packets int32) *PingResult {
 	log.Printf("[debug] parsing ping output (length: %d bytes)", len(output))
 
 	lines := strings.Split(output, "\n")
+	foundStats := false
 
 	for i := len(lines) - 1; i >= 0; i-- {
 		line := strings.TrimSpace(lines[i])
@@ -259,6 +239,7 @@ func parsePingOutput(output string, packets int32) *PingResult {
 				fmt.Sscanf(matches[1], "%d", &result.Transmitted)
 				fmt.Sscanf(matches[2], "%d", &result.Received)
 				fmt.Sscanf(matches[3], "%f", &result.PacketLoss)
+				foundStats = true
 				log.Printf("[debug] Linux ping stats: tx=%d, rx=%d, loss=%.1f%%",
 					result.Transmitted, result.Received, result.PacketLoss)
 				break
@@ -271,6 +252,7 @@ func parsePingOutput(output string, packets int32) *PingResult {
 				fmt.Sscanf(matches[1], "%d", &result.Transmitted)
 				fmt.Sscanf(matches[2], "%d", &result.Received)
 				fmt.Sscanf(matches[3], "%f", &result.PacketLoss)
+				foundStats = true
 				log.Printf("[debug] Windows ping stats: tx=%d, rx=%d, loss=%.1f%%",
 					result.Transmitted, result.Received, result.PacketLoss)
 				break
@@ -278,6 +260,19 @@ func parsePingOutput(output string, packets int32) *PingResult {
 		}
 	}
 
+	if !foundStats && strings.Contains(output, "bytes from") {
+		re := regexp.MustCompile(`bytes from`)
+		matches := re.FindAllStringIndex(output, -1)
+		if len(matches) > 0 {
+			result.Received = int32(len(matches))
+			if result.Transmitted > 0 {
+				result.PacketLoss = int32(float32(result.Transmitted-result.Received) / float32(result.Transmitted) * 100)
+			}
+			log.Printf("[debug] Counted %d successful responses, loss=%d%%", result.Received, result.PacketLoss)
+		}
+	}
+
+	foundRTT := false
 	for _, line := range lines {
 		if strings.Contains(line, "rtt min/avg/max/mdev") {
 			re := regexp.MustCompile(`=\s+(\d+(?:\.\d+)?)/(\d+(?:\.\d+)?)/(\d+(?:\.\d+)?)/`)
@@ -285,6 +280,7 @@ func parsePingOutput(output string, packets int32) *PingResult {
 				fmt.Sscanf(matches[1], "%f", &result.MinRtt)
 				fmt.Sscanf(matches[2], "%f", &result.AvgRtt)
 				fmt.Sscanf(matches[3], "%f", &result.MaxRtt)
+				foundRTT = true
 				log.Printf("[debug] Linux RTT: min=%.2fms, avg=%.2fms, max=%.2fms",
 					result.MinRtt, result.AvgRtt, result.MaxRtt)
 				break
@@ -297,6 +293,7 @@ func parsePingOutput(output string, packets int32) *PingResult {
 				fmt.Sscanf(matches[1], "%f", &result.MinRtt)
 				fmt.Sscanf(matches[2], "%f", &result.MaxRtt)
 				fmt.Sscanf(matches[3], "%f", &result.AvgRtt)
+				foundRTT = true
 				log.Printf("[debug] Windows RTT: min=%.2fms, avg=%.2fms, max=%.2fms",
 					result.MinRtt, result.AvgRtt, result.MaxRtt)
 				break
@@ -304,19 +301,7 @@ func parsePingOutput(output string, packets int32) *PingResult {
 		}
 	}
 
-	if result.Received == 0 && strings.Contains(output, "bytes from") {
-		re := regexp.MustCompile(`bytes from`)
-		matches := re.FindAllStringIndex(output, -1)
-		if len(matches) > 0 {
-			result.Received = int32(len(matches))
-			if result.Transmitted > 0 {
-				result.PacketLoss = int32(float32(result.Transmitted-result.Received) / float32(result.Transmitted) * 100)
-			}
-			log.Printf("[debug] Counted %d successful responses, loss=%d%%", result.Received, result.PacketLoss)
-		}
-	}
-
-	if result.AvgRtt == 0 && strings.Contains(output, "time=") {
+	if !foundRTT && strings.Contains(output, "time=") {
 		re := regexp.MustCompile(`time[=<]\s*(\d+(?:\.\d+)?)\s*ms`)
 		matches := re.FindAllStringSubmatch(output, -1)
 		if len(matches) > 0 {
